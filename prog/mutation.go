@@ -37,6 +37,7 @@ var DefaultMutateOpts = MutateOpts{
 	InsertWeight:     100,
 	MutateArgWeight:  100,
 	RemoveCallWeight: 10,
+	InsertRiscvWeight: 200,
 }
 
 type MutateOpts struct {
@@ -47,10 +48,11 @@ type MutateOpts struct {
 	InsertWeight       int
 	MutateArgWeight    int
 	RemoveCallWeight   int
+	InsertRiscvWeight  int
 }
 
 func (o MutateOpts) weight() int {
-	return o.SquashWeight + o.SpliceWeight + o.InsertWeight + o.MutateArgWeight + o.RemoveCallWeight
+	return o.SquashWeight + o.SpliceWeight + o.InsertWeight + o.MutateArgWeight + o.RemoveCallWeight + o.InsertRiscvWeight
 }
 
 func (p *Prog) MutateWithOpts(rs rand.Source, ncalls int, ct *ChoiceTable, noMutate map[int]bool,
@@ -72,6 +74,11 @@ func (p *Prog) MutateWithOpts(rs rand.Source, ncalls int, ct *ChoiceTable, noMut
 	}
 	for stop, ok := false, false; !stop; stop = ok && len(p.Calls) != 0 && r.oneOf(opts.ExpectedIterations) {
 		val := r.Intn(totalWeight)
+		val -= opts.InsertRiscvWeight
+		if val < 0 {
+			ok = ctx.insertRiscvCalls()
+			continue
+		}
 		val -= opts.SquashWeight
 		if val < 0 {
 			// Not all calls have anything squashable,
@@ -113,6 +120,40 @@ type mutator struct {
 	noMutate map[int]bool // Set of IDs of syscalls which should not be mutated.
 	corpus   []*Prog      // The entire corpus, including original program p.
 	opts     MutateOpts
+}
+
+// 在变异时，有意把能触发arch/riscv下的系统调用插入到种子中
+func (ctx *mutator) insertRiscvCalls() bool {
+	p, r := ctx.p, ctx.r
+	if len(p.Calls) >= ctx.ncalls {
+		return false
+	}
+    idx := r.Intn(len(p.Calls) + 1)
+    var c *Call
+    if idx < len(p.Calls) {
+        c = p.Calls[idx]
+    }
+    s := analyze(ctx.ct, ctx.corpus, p, c)
+	riscvSyscalls := GetRiscvSyscalls()
+	if len(riscvSyscalls) == 0 {
+		calls := r.generateCall(s, p, idx)
+        p.insertBefore(c, calls)
+        for len(p.Calls) > ctx.ncalls {
+            p.RemoveCall(idx)
+        }
+        return true
+	}
+	remaining := ctx.ncalls - len(p.Calls)
+	cnt := 1 + r.Intn(remaining)
+	for k := 0; k < cnt; k++ {
+		syscall := riscvSyscalls[r.Intn(len(riscvSyscalls))]
+		calls := r.generateParticularCall(s, syscall)
+		p.insertBefore(c, calls)
+		for len(p.Calls) > ctx.ncalls {
+			p.RemoveCall(idx)
+		}
+	}
+	return true
 }
 
 // This function selects a random other program p0 out of the corpus, and

@@ -1188,6 +1188,8 @@ func (mgr *Manager) MachineChecked(features flatrpc.Feature,
 			},
 			ModeKFuzzTest: mgr.cfg.Experimental.EnableKFuzzTest,
 		}, rnd, mgr.target)
+		fuzzerObj.CorpusInfoDir = mgr.cfg.CorpusInfoDir
+		fuzzerObj.Vmlinux = mgr.cfg.Vmlinux
 		fuzzerObj.AddCandidates(candidates)
 		mgr.fuzzer.Store(fuzzerObj)
 		mgr.http.Fuzzer.Store(fuzzerObj)

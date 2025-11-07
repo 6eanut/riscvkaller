@@ -1,0 +1,7 @@
+compile:
+make TARGETOS=linux TARGETARCH=riscv64 -j
+
+coverage:
+GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o ./bin/syz-cover github.com/google/syzkaller/tools/syz-cover
+wget http://localhost:<你的 syz-manager 端口>/rawcover
+./bin/syz-cover --config <你的 syzkaller 配置文件路径> rawcover

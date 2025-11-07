@@ -11,6 +11,9 @@ import (
 	"sort"
 	"sync"
 	"time"
+	"strings"
+	"os/exec"
+	"strconv"
 
 	"github.com/google/syzkaller/pkg/corpus"
 	"github.com/google/syzkaller/pkg/csource"
@@ -40,6 +43,9 @@ type Fuzzer struct {
 	ctRegenerate chan struct{}
 
 	execQueues
+
+	Vmlinux string
+	CorpusInfoDir string
 }
 
 func NewFuzzer(ctx context.Context, cfg *Config, rnd *rand.Rand,
@@ -486,5 +492,38 @@ func DefaultExecOpts(cfg *mgrconfig.Config, features flatrpc.Feature, debug bool
 		EnvFlags:   env,
 		ExecFlags:  exec,
 		SandboxArg: cfg.SandboxArg,
+	}
+}
+
+// 对于种子中的每个系统调用所触发的每个路径addr转换成src:line，从而判断是否触发了arch/riscv下的代码，进而记录该syscall
+func (f *Fuzzer) AnalyzeSeed(seed *prog.Prog, addrsPerSyscall map[*prog.Syscall][]uint64) {
+    addrToSrcline := func(addr uint64) (string, int) {
+        hexAddr := fmt.Sprintf("0x%x", addr)
+        out, err := exec.Command("addr2line", "-e", f.Vmlinux, hexAddr).Output()
+        if err != nil {
+            return "", 0
+        }
+        outString := string(out)
+        idx := strings.LastIndex(outString, ":")
+        if idx < 0 {
+            return "", 0
+        }
+        src := outString[:idx]
+        line, _ := strconv.Atoi(strings.TrimSpace(outString[idx+1:]))
+        return src, line
+    }
+
+	for _, syscall := range seed.Calls {
+		addrs, ok := addrsPerSyscall[syscall.Meta]
+		if !ok {
+			continue
+		}
+		for _, addr := range addrs {
+			src, line := addrToSrcline(addr)
+			if strings.Contains(src, "arch/riscv/") {
+				prog.AddRiscvSyscall(syscall.Meta)
+				f.Logf(0, "[riscv] syscall %s cover %s:%d", syscall.Meta.Name, src, line)
+			}
+		}
 	}
 }
