@@ -331,7 +331,7 @@ func (pool *Pool) Create(ctx context.Context, workdir string, index int) (vmimpl
 	if pool.env.Image == "9p" {
 		sshkey = filepath.Join(workdir, "key")
 		sshuser = "root"
-		if _, err := osutil.RunCmd(10*time.Minute, "", "ssh-keygen", "-t", "rsa", "-b", "2048",
+		if _, err := osutil.RunCmd(300*time.Minute, "", "ssh-keygen", "-t", "rsa", "-b", "2048",
 			"-N", "", "-C", "", "-f", sshkey); err != nil {
 			return nil, err
 		}
@@ -490,7 +490,7 @@ func (inst *instance) boot() error {
 		}
 	}
 
-	if err := vmimpl.WaitForSSH(10*time.Minute*inst.timeouts.Scale, inst.SSHOptions,
+	if err := vmimpl.WaitForSSH(300*time.Minute*inst.timeouts.Scale, inst.SSHOptions,
 		inst.os, inst.merger.Err, false, inst.debug); err != nil {
 		bootOutputStop <- true
 		<-bootOutputStop

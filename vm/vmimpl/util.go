@@ -39,7 +39,7 @@ func WaitForSSH(timeout time.Duration, opts SSHOptions, OS string, stop chan err
 	SleepInterruptible(5 * time.Second)
 	for {
 		select {
-		case <-time.After(5 * time.Second):
+		case <-time.After(180 * time.Second):
 		case err := <-stop:
 			return err
 		case <-Shutdown:
@@ -90,7 +90,7 @@ func sshArgs(debug bool, sshKey, portArg string, port, forwardPort int, systemSS
 	args = append(args,
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=no",
-		"-o", "ConnectTimeout=10",
+		"-o", "ConnectTimeout=1000",
 	)
 	if sshKey != "" {
 		args = append(args, "-i", sshKey)
