@@ -1188,6 +1188,21 @@ func (mgr *Manager) MachineChecked(features flatrpc.Feature,
 			},
 			ModeKFuzzTest: mgr.cfg.Experimental.EnableKFuzzTest,
 		}, rnd, mgr.target)
+		if mgr.cfg.CorpusInfoDir != "" {
+			dir := mgr.cfg.CorpusInfoDir
+			if osutil.IsExist(dir) {
+				log.Logf(0, "CorpusInfoDir %v exists; removing it", dir)
+				if err := os.RemoveAll(dir); err != nil {
+					log.Logf(0, "failed to remove CorpusInfoDir %v: %v", dir, err)
+				}
+			}
+			log.Logf(0, "CorpusInfoDir %v does not exist; creating it", dir)
+			if err := osutil.MkdirAll(dir); err != nil {
+				log.Logf(0, "failed to create CorpusInfoDir %v: %v", dir, err)
+			}
+		}
+		fuzzerObj.CorpusInfoDir = mgr.cfg.CorpusInfoDir
+		fuzzerObj.Vmlinux = mgr.cfg.Vmlinux
 		fuzzerObj.AddCandidates(candidates)
 		mgr.fuzzer.Store(fuzzerObj)
 		mgr.http.Fuzzer.Store(fuzzerObj)

@@ -11,6 +11,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"sort"
+	"path/filepath"
+	"os"
 
 	"github.com/google/syzkaller/pkg/corpus"
 	"github.com/google/syzkaller/pkg/cover"
@@ -18,6 +21,7 @@ import (
 	"github.com/google/syzkaller/pkg/fuzzer/queue"
 	"github.com/google/syzkaller/pkg/signal"
 	"github.com/google/syzkaller/prog"
+	"github.com/google/syzkaller/pkg/hash"
 )
 
 type job interface {
@@ -136,11 +140,19 @@ func (job *triageJob) execute(req *queue.Request, flags ProgFlags) *queue.Result
 	return job.fuzzer.executeWithFlags(job.queue, req, flags)
 }
 
+// 获取当前要triage的种子中的每个系统调用的覆盖
 func (job *triageJob) run(fuzzer *Fuzzer) {
 	fuzzer.statNewInputs.Add(1)
 	job.fuzzer = fuzzer
 	job.info.Logf("\n%s", job.p.Serialize())
+	addrsPerSyscall := make(map[*prog.Syscall][]uint64)
 	for call, info := range job.calls {
+		var syscall *prog.Syscall
+		if call != -1 {
+			syscall = job.p.Calls[call].Meta
+			addrs := info.newSignal.ToRaw()
+			addrsPerSyscall[syscall] = addrs
+		}
 		job.info.Logf("call #%d [%s]: |new signal|=%d%s",
 			call, job.p.CallName(call), info.newSignal.Len(), signalPreview(info.newSignal))
 	}
@@ -154,23 +166,33 @@ func (job *triageJob) run(fuzzer *Fuzzer) {
 	for call, info := range job.calls {
 		wg.Add(1)
 		go func() {
-			job.handleCall(call, info)
+			job.handleCall(call, info, addrsPerSyscall)
 			wg.Done()
 		}()
 	}
 	wg.Wait()
 }
 
-func (job *triageJob) handleCall(call int, info *triageCall) {
+// 限制分析的线程数量，以防资源不够用
+var analyzeSeedLimit = make(chan struct{}, 3)
+
+// 对每个加入到种子库中的种子进行分析
+func (job *triageJob) handleCall(call int, info *triageCall, addrsPerSyscall map[*prog.Syscall][]uint64) {
 	if info.newStableSignal.Empty() {
 		return
 	}
 
 	p := job.p
+	miniAddrsPerSyscall := make(map[*prog.Syscall][]uint64)
 	if job.flags&ProgMinimized == 0 {
 		p, call = job.minimize(call, info)
 		if p == nil {
 			return
+		}
+		for _, syscall := range p.Calls {
+			if addrs, exists := addrsPerSyscall[syscall.Meta]; exists {
+				miniAddrsPerSyscall[syscall.Meta] = addrs
+			}
 		}
 	}
 	callName := p.CallName(call)
@@ -216,6 +238,42 @@ func (job *triageJob) handleCall(call int, info *triageCall) {
 		RawCover: info.rawCover,
 	}
 	job.fuzzer.Config.Corpus.Save(input)
+	go func() {
+		analyzeSeedLimit <- struct{}{}
+		defer func() { <-analyzeSeedLimit }()
+		job.fuzzer.AnalyzeSeed(p, miniAddrsPerSyscall)
+	}()
+	go func(seed *prog.Prog, addrsPerSyscall map[*prog.Syscall][]uint64) {
+		if len(addrsPerSyscall) == 0 {
+			return
+		}
+		sig := hash.String(seed.Serialize())
+		outDir := job.fuzzer.CorpusInfoDir
+		addrsMap := make(map[uint64]struct{})
+		for _, addrs := range addrsPerSyscall {
+			for _, addr := range addrs {
+				addrsMap[addr] = struct{}{}
+			}
+		}
+		addrsSlice := make([]uint64, 0, len(addrsMap))
+		for a := range addrsMap {
+			addrsSlice = append(addrsSlice, a)
+		}
+		sort.Slice(addrsSlice, func(i, j int) bool { return addrsSlice[i] < addrsSlice[j] })
+		var sb2 strings.Builder
+		for _, a := range addrsSlice {
+			fmt.Fprintf(&sb2, "0x%x\n", a)
+		}
+		fname := sig
+		if outDir != "" {
+			fname = filepath.Join(outDir, fname)
+		}
+		if err := os.WriteFile(fname, []byte(sb2.String()), 0644); err != nil {
+			if job.fuzzer != nil {
+				job.fuzzer.Logf(0, "failed to write seed addr file %s: %v", fname, err)
+			}
+		}
+	}(p.Clone(), miniAddrsPerSyscall)
 }
 
 func (job *triageJob) deflake(exec func(*queue.Request, ProgFlags) *queue.Result) (stop bool) {

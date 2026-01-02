@@ -185,7 +185,7 @@ func (inst *instance) Boot() error {
 		return err
 	}
 
-	if err := vmimpl.WaitForSSH(20*time.Minute, inst.SSHOptions,
+	if err := vmimpl.WaitForSSH(300*time.Minute, inst.SSHOptions,
 		inst.os, nil, false, inst.debug); err != nil {
 		out := <-inst.merger.Output
 		return vmimpl.BootError{Title: err.Error(), Output: out}

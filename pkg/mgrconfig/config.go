@@ -230,6 +230,9 @@ type Config struct {
 
 	// Implementation details beyond this point. Filled after parsing.
 	Derived `json:"-"`
+
+	Vmlinux string `json:"vmlinux,omitempty`
+	CorpusInfoDir        string `json:"corpusinfo_dir,omitempty"`
 }
 
 // These options are not guaranteed to be backward/forward compatible and
