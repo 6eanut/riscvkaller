@@ -1,0 +1,66 @@
+#
+# requires: arch=riscv64 -threaded
+#
+
+# Covers all 18 target kernel functions including:
+#   kvm_pmu_get_programmable_pmc_index  → cfg_match with non-fixed event (CACHE_MISSES)
+#   kvm_riscv_vcpu_pmu_snapshot_set_shmem → FID=7 (was wrongly 6)
+#   kvm_riscv_vcpu_csr_return           → csrr hpmcounter3 after counter 3 is started
+#
+r0 = openat$kvm(0, &AUTO='/dev/kvm\x00', 0x0, 0x0)
+r1 = ioctl$KVM_CREATE_VM(r0, AUTO, 0x0)
+r2 = syz_kvm_setup_syzos_vm$riscv64(r1, &(0x7f0000c00000/0x400000)=nil)
+
+# Call sequence:
+#
+#  1. PMU_NUM_COUNTERS (FID=0)
+#     → kvm_riscv_vcpu_pmu_num_ctrs
+#
+#  2. PMU_CTR_GET_INFO idx=0 (FID=1)
+#     → kvm_riscv_vcpu_pmu_ctr_info, kvm_pmu_get_perf_event_type,
+#       kvm_pmu_get_fixed_pmc_index (cycle, fixed counter)
+#
+#  3. PMU_CTR_GET_INFO idx=3 (FID=1)
+#     → kvm_riscv_vcpu_pmu_ctr_info (programmable counter path)
+#
+#  4. PMU_CTR_CFG_MATCH cbase=3, cmask=1, event=1/CPU_CYCLES (FID=2)
+#     → kvm_riscv_vcpu_pmu_ctr_cfg_match, kvm_pmu_validate_counter_mask,
+#       kvm_pmu_create_perf_event, kvm_pmu_get_perf_event_{type,config,hw_config},
+#       kvm_pmu_get_fixed_pmc_index
+#     Force counter=3 to guarantee csrr hpmcounter3 works later.
+#
+#  5. PMU_CTR_CFG_MATCH cbase=3, cmask=1, event=4/CACHE_MISSES (FID=2)
+#     → same path as step 4, but event is non-fixed:
+#       kvm_pmu_get_programmable_pmc_index  ← NEW coverage
+#     KVM may return error (QEMU may not support cache events), but the
+#     function IS called before the error is returned.
+#
+#  6. PMU_SNAPSHOT_SET_SHMEM gpa=-1 (FID=7, was wrongly 6)
+#     → kvm_riscv_vcpu_pmu_snapshot_set_shmem  ← FID 修正后可触发
+#
+#  7. PMU_CTR_START cbase=3, ctr_mask=1, flags=0 (FID=3)
+#     → kvm_riscv_vcpu_pmu_ctr_start, kvm_pmu_get_sample_period
+#
+#  8. csrr hpmcounter3 (CSR=0xc03)
+#     → kvm_riscv_vcpu_csr_return
+#     Counter 3 was started in step 7; KVM emulates the CSR read.
+#
+#  9. PMU_CTR_STOP cbase=3, ctr_mask=1, flags=0 (FID=4)
+#     → kvm_riscv_vcpu_pmu_ctr_stop
+#
+# 10. PMU_CTR_FW_READ idx=0 (FID=5)
+#     → kvm_riscv_vcpu_pmu_fw_ctr_read
+#
+# 11. PMU_CTR_FW_READ idx=29 (FID=5)
+#     → kvm_riscv_vcpu_pmu_fw_ctr_read (typical FW counter base on QEMU)
+#
+# 12. PMU_CTR_STOP flags=1/RESET (FID=4)
+#     → kvm_riscv_vcpu_pmu_ctr_stop, kvm_pmu_release_perf_event
+#
+r3 = syz_kvm_add_vcpu$riscv64(r2, &AUTO={0x0, &AUTO=[@sbi_pmu_num_ctrs={AUTO, AUTO, 0x0},@sbi_pmu_ctr_info={AUTO, AUTO, {0x0}},@sbi_pmu_ctr_info={AUTO, AUTO, {0x3}},@sbi_pmu_ctr_cfg_match={AUTO, AUTO, {0x3, 0x1, 0x0, 0x1}},@sbi_pmu_ctr_cfg_match={AUTO, AUTO, {0x3, 0x1, 0x0, 0x4}},@sbi_pmu_snapshot_set_shmem={AUTO, AUTO, {0xffffffffffffffff, 0xffffffffffffffff, 0x0}},@sbi_pmu_ctr_start={AUTO, AUTO, {0x3, 0x1, 0x0, 0x0}},@csrr={AUTO, AUTO, {@valid=0xc03}},@sbi_pmu_ctr_stop={AUTO, AUTO, {0x3, 0x1, 0x0}},@sbi_pmu_fw_ctr_read={AUTO, AUTO, {0x0}},@sbi_pmu_fw_ctr_read={AUTO, AUTO, {0x1d}},@sbi_pmu_ctr_stop={AUTO, AUTO, {0x3, 0x1, 0x1}}], AUTO}, 0x0, 0x0)
+
+r4 = ioctl$KVM_GET_VCPU_MMAP_SIZE(r0, AUTO)
+r5 = mmap$KVM_VCPU(&(0x7f0000009000/0x1000)=nil, r4, 0x3, 0x1, r3, 0x0)
+
+ioctl$KVM_RUN(r3, AUTO, 0x0)
+syz_kvm_assert_syzos_uexit$riscv64(r3, r5, 0xffffffffffffffff)

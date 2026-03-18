@@ -17,6 +17,14 @@ typedef enum {
 	SYZOS_API_CODE = 10,
 	SYZOS_API_CSRR = 100,
 	SYZOS_API_CSRW = 101,
+	SYZOS_API_SBI_PMU_NUM_CTRS = 200,
+	SYZOS_API_SBI_PMU_CTR_INFO = 201,
+	SYZOS_API_SBI_PMU_CTR_CFG_MATCH = 202,
+	SYZOS_API_SBI_PMU_CTR_START = 203,
+	SYZOS_API_SBI_PMU_CTR_STOP = 204,
+	SYZOS_API_SBI_PMU_FW_CTR_READ = 205,
+	SYZOS_API_SBI_PMU_SNAPSHOT_SET_SHMEM = 206,
+    SYZOS_API_SBI_STA_SET_SHMEM          = 210,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -25,10 +33,65 @@ struct api_call_code {
 	uint32 insns[];
 };
 
+struct api_call_sbi_pmu_ctr_info {
+	struct api_call_header header;
+	uint64 ctr_idx;
+};
+
+struct api_call_sbi_pmu_ctr_cfg_match {
+	struct api_call_header header;
+	uint64 cbase;
+	uint64 cmask;
+	uint64 cflags;
+	uint64 event;
+};
+
+struct api_call_sbi_pmu_ctr_start {
+	struct api_call_header header;
+	uint64 ctr_base;
+	uint64 ctr_mask;
+	uint64 flags;
+	uint64 ival;
+};
+
+struct api_call_sbi_pmu_ctr_stop {
+	struct api_call_header header;
+	uint64 ctr_base;
+	uint64 ctr_mask;
+	uint64 flags;
+};
+
+struct api_call_sbi_pmu_fw_ctr_read {
+	struct api_call_header header;
+	uint64 ctr_idx;
+};
+
+struct api_call_sbi_pmu_snapshot_set_shmem {
+	struct api_call_header header;
+	uint64 gpa_lo;
+	uint64 gpa_hi;
+	uint64 flags;
+};
+
+struct api_call_sbi_sta_set_shmem {
+	struct api_call_header header;
+	uint64 gpa_lo;
+	uint64 gpa_hi;
+	uint64 flags;
+};
+
 GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
 GUEST_CODE static void guest_handle_csrw(uint32 csr, uint64 val);
+GUEST_CODE static void guest_handle_sbi_pmu_num_ctrs(void);
+GUEST_CODE static void guest_handle_sbi_pmu_ctr_info(uint64 ctr_idx);
+GUEST_CODE static void guest_handle_sbi_pmu_ctr_cfg_match(uint64 cbase, uint64 cmask, uint64 cflags, uint64 event);
+GUEST_CODE static void guest_handle_sbi_pmu_ctr_start(uint64 ctr_base, uint64 ctr_mask, uint64 flags, uint64 ival);
+GUEST_CODE static void guest_handle_sbi_pmu_ctr_stop(uint64 ctr_base, uint64 ctr_mask, uint64 flags);
+GUEST_CODE static void guest_handle_sbi_pmu_fw_ctr_read(uint64 ctr_idx);
+GUEST_CODE static void guest_handle_sbi_pmu_snapshot_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
+GUEST_CODE static void guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -64,7 +127,51 @@ guest_main(uint64 size, uint64 cpu)
 			// Execute a csrw instruction.
 			struct api_call_2* ccmd = (struct api_call_2*)cmd;
 			guest_handle_csrw(ccmd->args[0], ccmd->args[1]);
-		}
+		} else if (call == SYZOS_API_SBI_PMU_NUM_CTRS) {
+			// Query total number of PMU counters via SBI.
+			guest_handle_sbi_pmu_num_ctrs();
+		} else if (call == SYZOS_API_SBI_PMU_CTR_INFO) {
+			// Get counter info (type, CSR, width) for a given index.
+			struct api_call_sbi_pmu_ctr_info* ccmd =
+			    (struct api_call_sbi_pmu_ctr_info*)cmd;
+			guest_handle_sbi_pmu_ctr_info(ccmd->ctr_idx);
+		} else if (call == SYZOS_API_SBI_PMU_CTR_CFG_MATCH) {
+			// Find and configure a counter matching the requested event.
+			struct api_call_sbi_pmu_ctr_cfg_match* ccmd =
+			    (struct api_call_sbi_pmu_ctr_cfg_match*)cmd;
+			guest_handle_sbi_pmu_ctr_cfg_match(ccmd->cbase, ccmd->cmask,
+							   ccmd->cflags, ccmd->event);
+		} else if (call == SYZOS_API_SBI_PMU_CTR_START) {
+			// Start one or more configured counters.
+			struct api_call_sbi_pmu_ctr_start* ccmd =
+			    (struct api_call_sbi_pmu_ctr_start*)cmd;
+			guest_handle_sbi_pmu_ctr_start(ccmd->ctr_base, ccmd->ctr_mask,
+						       ccmd->flags, ccmd->ival);
+		} else if (call == SYZOS_API_SBI_PMU_CTR_STOP) {
+			// Stop one or more running counters.
+			struct api_call_sbi_pmu_ctr_stop* ccmd =
+			    (struct api_call_sbi_pmu_ctr_stop*)cmd;
+			guest_handle_sbi_pmu_ctr_stop(ccmd->ctr_base, ccmd->ctr_mask,
+						      ccmd->flags);
+		} else if (call == SYZOS_API_SBI_PMU_FW_CTR_READ) {
+			// Read a firmware counter value.
+			struct api_call_sbi_pmu_fw_ctr_read* ccmd =
+			    (struct api_call_sbi_pmu_fw_ctr_read*)cmd;
+			guest_handle_sbi_pmu_fw_ctr_read(ccmd->ctr_idx);
+		} else if (call == SYZOS_API_SBI_PMU_SNAPSHOT_SET_SHMEM) {
+			// Set the PMU snapshot shared memory region.
+			struct api_call_sbi_pmu_snapshot_set_shmem* ccmd =
+			    (struct api_call_sbi_pmu_snapshot_set_shmem*)cmd;
+			guest_handle_sbi_pmu_snapshot_set_shmem(ccmd->gpa_lo,
+								ccmd->gpa_hi,
+								ccmd->flags);
+		} else if (call == SYZOS_API_SBI_STA_SET_SHMEM) {
+            // Register steal-time shared memory (SBI STA FID=0).
+            struct api_call_sbi_sta_set_shmem* ccmd =
+                (struct api_call_sbi_sta_set_shmem*)cmd;
+            guest_handle_sbi_sta_set_shmem(ccmd->gpa_lo, ccmd->gpa_hi,
+                                           ccmd->flags);
+        }
 		addr += cmd->size;
 		size -= cmd->size;
 	};
@@ -188,6 +295,77 @@ guest_unexp_trap(void)
 	sbi_ecall(0, 0, 0, 0, 0, 0,
 		  KVM_RISCV_SBI_UNEXP,
 		  KVM_RISCV_SBI_EXT);
+}
+
+// SBI PMU extension calls.
+#define SBI_EXT_PMU 0x504D55
+#define SBI_EXT_PMU_NUM_COUNTERS 0
+#define SBI_EXT_PMU_COUNTER_GET_INFO 1
+#define SBI_EXT_PMU_COUNTER_CFG_MATCH 2
+#define SBI_EXT_PMU_COUNTER_START 3
+#define SBI_EXT_PMU_COUNTER_STOP 4
+#define SBI_EXT_PMU_COUNTER_FW_READ 5
+#define SBI_EXT_PMU_COUNTER_FW_READ_HI 6
+#define SBI_EXT_PMU_SNAPSHOT_SET_SHMEM 7
+#define SBI_EXT_PMU_EVENT_GET_INFO 8
+
+GUEST_CODE static noinline void guest_handle_sbi_pmu_num_ctrs(void)
+{
+	sbi_ecall(0, 0, 0, 0, 0, 0,
+		  SBI_EXT_PMU_NUM_COUNTERS, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void guest_handle_sbi_pmu_ctr_info(uint64 ctr_idx)
+{
+	sbi_ecall(ctr_idx, 0, 0, 0, 0, 0,
+		  SBI_EXT_PMU_COUNTER_GET_INFO, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void
+guest_handle_sbi_pmu_ctr_cfg_match(uint64 cbase, uint64 cmask,
+				   uint64 cflags, uint64 event)
+{
+	sbi_ecall(cbase, cmask, cflags, event, 0, 0,
+		  SBI_EXT_PMU_COUNTER_CFG_MATCH, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void
+guest_handle_sbi_pmu_ctr_start(uint64 ctr_base, uint64 ctr_mask,
+			       uint64 flags, uint64 ival)
+{
+	sbi_ecall(ctr_base, ctr_mask, flags, ival, 0, 0,
+		  SBI_EXT_PMU_COUNTER_START, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void
+guest_handle_sbi_pmu_ctr_stop(uint64 ctr_base, uint64 ctr_mask, uint64 flags)
+{
+	sbi_ecall(ctr_base, ctr_mask, flags, 0, 0, 0,
+		  SBI_EXT_PMU_COUNTER_STOP, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void guest_handle_sbi_pmu_fw_ctr_read(uint64 ctr_idx)
+{
+	sbi_ecall(ctr_idx, 0, 0, 0, 0, 0,
+		  SBI_EXT_PMU_COUNTER_FW_READ, SBI_EXT_PMU);
+}
+
+GUEST_CODE static noinline void
+guest_handle_sbi_pmu_snapshot_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags)
+{
+	sbi_ecall(gpa_lo, gpa_hi, flags, 0, 0, 0,
+		  SBI_EXT_PMU_SNAPSHOT_SET_SHMEM, SBI_EXT_PMU);
+}
+
+// SBI STA (Steal Time Accounting) extension.
+#define SBI_EXT_STA                      0x535441
+#define SBI_EXT_STA_STEAL_TIME_SET_SHMEM 0
+
+GUEST_CODE static noinline void
+guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags)
+{
+	sbi_ecall(gpa_lo, gpa_hi, flags, 0, 0, 0,
+		  SBI_EXT_STA_STEAL_TIME_SET_SHMEM, SBI_EXT_STA);
 }
 
 #endif // EXECUTOR_COMMON_KVM_RISCV64_SYZOS_H
