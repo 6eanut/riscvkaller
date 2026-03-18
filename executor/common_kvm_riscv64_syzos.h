@@ -25,6 +25,9 @@ typedef enum {
 	SYZOS_API_SBI_PMU_FW_CTR_READ = 205,
 	SYZOS_API_SBI_PMU_SNAPSHOT_SET_SHMEM = 206,
     SYZOS_API_SBI_STA_SET_SHMEM          = 210,
+	SYZOS_API_MEMWRITE = 300,
+	SYZOS_API_ECALL = 400,
+	SYZOS_API_RET = 500,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -80,6 +83,19 @@ struct api_call_sbi_sta_set_shmem {
 	uint64 flags;
 };
 
+struct api_call_8 {
+	struct api_call_header header;
+	uint64 args[8];
+};
+
+struct api_call_memwrite {
+	struct api_call_header header;
+	uint64 base_addr;
+	uint64 offset;
+	uint64 value;
+	uint64 len;
+};
+
 GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
@@ -92,6 +108,9 @@ GUEST_CODE static void guest_handle_sbi_pmu_ctr_stop(uint64 ctr_base, uint64 ctr
 GUEST_CODE static void guest_handle_sbi_pmu_fw_ctr_read(uint64 ctr_idx);
 GUEST_CODE static void guest_handle_sbi_pmu_snapshot_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
 GUEST_CODE static void guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
+GUEST_CODE static void guest_handle_memwrite(struct api_call_memwrite* cmd);
+GUEST_CODE static void guest_handle_ecall(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 a6, uint64 a7);
+GUEST_CODE static void guest_handle_ret(uint64 unused);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -171,6 +190,14 @@ guest_main(uint64 size, uint64 cpu)
                 (struct api_call_sbi_sta_set_shmem*)cmd;
             guest_handle_sbi_sta_set_shmem(ccmd->gpa_lo, ccmd->gpa_hi,
                                            ccmd->flags);
+		} else if (call == SYZOS_API_MEMWRITE) {
+			guest_handle_memwrite((struct api_call_memwrite*)cmd);
+		} else if (call == SYZOS_API_ECALL) {
+			struct api_call_8* ccmd = (struct api_call_8*)cmd;
+			guest_handle_ecall(ccmd->args[0], ccmd->args[1], ccmd->args[2], ccmd->args[3], ccmd->args[4], ccmd->args[5], ccmd->args[6], ccmd->args[7]);
+		} else if (call == SYZOS_API_RET) {
+			struct api_call_1* ccmd = (struct api_call_1*)cmd;
+			guest_handle_ret(ccmd->arg);
         }
 		addr += cmd->size;
 		size -= cmd->size;
@@ -366,6 +393,69 @@ guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags)
 {
 	sbi_ecall(gpa_lo, gpa_hi, flags, 0, 0, 0,
 		  SBI_EXT_STA_STEAL_TIME_SET_SHMEM, SBI_EXT_STA);
+}
+
+GUEST_CODE static noinline void guest_handle_memwrite(struct api_call_memwrite* cmd)
+{
+	uint64 dest = cmd->base_addr + cmd->offset;
+	switch (cmd->len) {
+	case 1: {
+		volatile uint8* p = (uint8*)dest;
+		*p = (uint8)cmd->value;
+		break;
+	}
+
+	case 2: {
+		volatile uint16* p = (uint16*)dest;
+		*p = (uint16)cmd->value;
+		break;
+	}
+	case 4: {
+		volatile uint32* p = (uint32*)dest;
+		*p = (uint32)cmd->value;
+		break;
+	}
+	case 8:
+	default: {
+		volatile uint64* p = (uint64*)dest;
+		*p = (uint64)cmd->value;
+		break;
+	}
+	}
+}
+
+GUEST_CODE static noinline void guest_handle_ecall(uint64 a0, uint64 a1,
+                                                   uint64 a2, uint64 a3,
+                                                   uint64 a4, uint64 a5,
+												   uint64 a6, uint64 a7)
+{
+    register uint64 ra0 asm("a0") = a0;
+    register uint64 ra1 asm("a1") = a1;
+    register uint64 ra2 asm("a2") = a2;
+    register uint64 ra3 asm("a3") = a3;
+    register uint64 ra4 asm("a4") = a4;
+    register uint64 ra5 asm("a5") = a5;
+    register uint64 ra6 asm("a6") = a6;
+    register uint64 ra7 asm("a7") = a7;
+
+    asm volatile(
+        "ecall"
+        : "+r"(ra0)
+        : "r"(ra1), "r"(ra2), "r"(ra3), "r"(ra4), "r"(ra5), "r"(ra6), "r"(ra7)
+        : "memory");
+}
+
+GUEST_CODE static noinline void guest_handle_ret(uint64 unused)
+{
+    uint64 hstatus;
+
+    asm volatile("csrr %0, hstatus" : "=r"(hstatus));
+
+    if (hstatus & (1ULL << 7)) {
+        asm volatile("hret" ::: "memory");
+    }
+
+    asm volatile("sret" ::: "memory");
 }
 
 #endif // EXECUTOR_COMMON_KVM_RISCV64_SYZOS_H

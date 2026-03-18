@@ -136,6 +136,54 @@ syzos_api_sbi_sta_set_shmem {
 	flags	int64
 }
 
+syzos_api_memwrite$riscv64 [
+	generic		syzos_api_memwrite_generic$riscv64
+]
+
+syzos_memwrite_len = 1, 2, 4, 8
+
+syzos_api_memwrite_generic$riscv64 {
+	base	flags[kvm_guest_addrs, int64]
+	offset	int64[0:4096]
+	value	int64
+	len	flags[syzos_memwrite_len, int64]
+}
+
+# See arch/riscv/kvm/vcpu_sbi_replace.c
+a0_valid = 0, 1, 2
+
+riscv64_a0_voa [
+	valid	flags[a0_valid, int64]
+	any	int64
+]
+
+# See sbi*.c
+a6_valid = 0, 1, 2, 3, 4, 5, 6, 7, 8
+
+riscv64_a6_voa [
+	valid	flags[a6_valid, int64]
+	any	int64
+]
+
+# See arch/riscv/include/asm/sbi.h
+a7_valid = 0x2, 0x1, 0x0, 0x3, 0x4, 0x5, 0x6, 0x7, 0x8
+
+riscv64_a7_voa [
+	valid	flags[a7_valid, int64]
+	any	int64
+]
+
+syzos_api_ecall {
+	a0	riscv64_a0_voa
+	a1	int64
+	a2	int64
+	a3	int64
+	a4	int64
+	a5	int64
+	a6	riscv64_a6_voa
+	a7	riscv64_a7_voa
+}
+
 syzos_api_call$riscv64 [
 	uexit				syzos_api$riscv64[0, intptr]
 	code				syzos_api$riscv64[10, syzos_api_code$riscv64]
@@ -149,6 +197,9 @@ syzos_api_call$riscv64 [
 	sbi_pmu_fw_ctr_read		syzos_api$riscv64[205, syzos_api_sbi_pmu_fw_ctr_read]
 	sbi_pmu_snapshot_set_shmem	syzos_api$riscv64[206, syzos_api_sbi_pmu_snapshot_set_shmem]
 	sbi_sta_set_shmem	syzos_api$riscv64[210, syzos_api_sbi_sta_set_shmem]
+	memwrite	syzos_api$riscv64[300, syzos_api_memwrite$riscv64]
+	ecall	syzos_api$riscv64[400, syzos_api_ecall]
+	ret	syzos_api$riscv64[500, intptr]
 ] [varlen]
 
 # Test assertions, will not be used by the fuzzer.
