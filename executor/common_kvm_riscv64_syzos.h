@@ -32,6 +32,18 @@ typedef enum {
 	SYZOS_API_RET = 500,
 	SYZOS_API_BARRIER = 600,
 	SYZOS_API_SBI_GENERIC = 700,
+	SYZOS_API_SBI_BASE   = 800,
+	SYZOS_API_SBI_TIME   = 900,
+	SYZOS_API_SBI_IPI    = 1000,
+	SYZOS_API_SBI_RFENCE = 1100,
+	SYZOS_API_SBI_HSM    = 1200,
+	SYZOS_API_SBI_SRST   = 1300,
+	SYZOS_API_SBI_SUSP   = 1400,
+	SYZOS_API_SBI_DBCN   = 1500,
+	SYZOS_API_SBI_NACL   = 1600,
+	SYZOS_API_SBI_FWFT   = 1700,
+	SYZOS_API_SBI_MPXY   = 1800,
+	SYZOS_API_SBI_DBTR   = 1900,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -131,6 +143,107 @@ struct api_call_sbi_generic {
 	uint64 ext;
 };
 
+// BASE (0x10): fids 0-6, a0 used only for PROBE_EXT (fid=3).
+struct api_call_sbi_base {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0; // ext_id for PROBE_EXT; ignored for others
+};
+
+// TIME (0x54494D45): fid always 0 (SET_TIMER), a0 = stime_value.
+struct api_call_sbi_time {
+	struct api_call_header header;
+	uint64 stime;
+};
+
+// IPI (0x735049): fid always 0 (SEND_IPI).
+struct api_call_sbi_ipi {
+	struct api_call_header header;
+	uint64 hart_mask;
+	uint64 hart_mask_base;
+};
+
+// RFENCE (0x52464E43): fids 0-6, up to 5 args.
+struct api_call_sbi_rfence {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 hart_mask;
+	uint64 hart_mask_base;
+	uint64 start_addr;
+	uint64 size;
+	uint64 aux; // asid or vmid depending on fid
+};
+
+// HSM (0x48534D): fids 0-3.
+struct api_call_sbi_hsm {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0; // hartid / suspend_type
+	uint64 a1; // start_addr / resume_addr
+	uint64 a2; // opaque
+};
+
+// SRST (0x53525354): fid always 0 (RESET).
+struct api_call_sbi_srst {
+	struct api_call_header header;
+	uint64 reset_type;
+	uint64 reset_reason;
+};
+
+// SUSP (0x53555350): fid always 0 (SYSTEM_SUSPEND).
+struct api_call_sbi_susp {
+	struct api_call_header header;
+	uint64 sleep_type;
+	uint64 resume_addr;
+	uint64 opaque;
+};
+
+// DBCN (0x4442434E): fids 0-2.
+struct api_call_sbi_dbcn {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0; // num_bytes or byte value
+	uint64 a1; // base_addr_lo
+	uint64 a2; // base_addr_hi
+};
+
+// NACL (0x4E41434C): fids 0-4.
+struct api_call_sbi_nacl {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0;
+	uint64 a1;
+};
+
+// FWFT (0x46574654): fid 0 (SET) or 1 (GET).
+struct api_call_sbi_fwft {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 feature;
+	uint64 value; // only for SET (fid=0)
+	uint64 flags; // only for SET (fid=0)
+};
+
+// MPXY (0x4D505859): fids 0-7.
+struct api_call_sbi_mpxy {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0;
+	uint64 a1;
+	uint64 a2;
+	uint64 a3;
+	uint64 a4;
+};
+
+// DBTR (0x44425452): fids 0-7.
+struct api_call_sbi_dbtr {
+	struct api_call_header header;
+	uint64 fid;
+	uint64 a0;
+	uint64 a1;
+	uint64 a2;
+};
+
 GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
@@ -150,6 +263,18 @@ GUEST_CODE static void guest_handle_ecall(uint64 a0, uint64 a1, uint64 a2, uint6
 GUEST_CODE static void guest_handle_ret(uint64 unused);
 GUEST_CODE static void guest_handle_barrier(uint64 type);
 GUEST_CODE static void guest_handle_sbi_generic(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 fid, uint64 ext);
+GUEST_CODE static void guest_handle_sbi_base(uint64 fid, uint64 a0);
+GUEST_CODE static void guest_handle_sbi_time(uint64 stime);
+GUEST_CODE static void guest_handle_sbi_ipi(uint64 hart_mask, uint64 hart_mask_base);
+GUEST_CODE static void guest_handle_sbi_rfence(uint64 fid, uint64 hart_mask, uint64 hart_mask_base, uint64 start_addr, uint64 size, uint64 aux);
+GUEST_CODE static void guest_handle_sbi_hsm(uint64 fid, uint64 a0, uint64 a1, uint64 a2);
+GUEST_CODE static void guest_handle_sbi_srst(uint64 reset_type, uint64 reset_reason);
+GUEST_CODE static void guest_handle_sbi_susp(uint64 sleep_type, uint64 resume_addr, uint64 opaque);
+GUEST_CODE static void guest_handle_sbi_dbcn(uint64 fid, uint64 a0, uint64 a1, uint64 a2);
+GUEST_CODE static void guest_handle_sbi_nacl(uint64 fid, uint64 a0, uint64 a1);
+GUEST_CODE static void guest_handle_sbi_fwft(uint64 fid, uint64 feature, uint64 value, uint64 flags);
+GUEST_CODE static void guest_handle_sbi_mpxy(uint64 fid, uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4);
+GUEST_CODE static void guest_handle_sbi_dbtr(uint64 fid, uint64 a0, uint64 a1, uint64 a2);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -254,6 +379,60 @@ guest_main(uint64 size, uint64 cpu)
 				ccmd->a0, ccmd->a1, ccmd->a2, ccmd->a3,
 				ccmd->a4, ccmd->a5,
 				ccmd->fid, ccmd->ext);
+		} else if (call == SYZOS_API_SBI_BASE) {
+			// SBI BASE extension: version/probe queries.
+			struct api_call_sbi_base* ccmd = (struct api_call_sbi_base*)cmd;
+			guest_handle_sbi_base(ccmd->fid, ccmd->a0);
+		} else if (call == SYZOS_API_SBI_TIME) {
+			// SBI TIME extension: set timer.
+			struct api_call_sbi_time* ccmd = (struct api_call_sbi_time*)cmd;
+			guest_handle_sbi_time(ccmd->stime);
+		} else if (call == SYZOS_API_SBI_IPI) {
+			// SBI IPI extension: send IPI to hart mask.
+			struct api_call_sbi_ipi* ccmd = (struct api_call_sbi_ipi*)cmd;
+			guest_handle_sbi_ipi(ccmd->hart_mask, ccmd->hart_mask_base);
+		} else if (call == SYZOS_API_SBI_RFENCE) {
+			// SBI RFENCE extension: remote fence operations.
+			struct api_call_sbi_rfence* ccmd = (struct api_call_sbi_rfence*)cmd;
+			guest_handle_sbi_rfence(ccmd->fid, ccmd->hart_mask,
+						ccmd->hart_mask_base,
+						ccmd->start_addr, ccmd->size,
+						ccmd->aux);
+		} else if (call == SYZOS_API_SBI_HSM) {
+			// SBI HSM extension: hart state management.
+			struct api_call_sbi_hsm* ccmd = (struct api_call_sbi_hsm*)cmd;
+			guest_handle_sbi_hsm(ccmd->fid, ccmd->a0, ccmd->a1, ccmd->a2);
+		} else if (call == SYZOS_API_SBI_SRST) {
+			// SBI SRST extension: system reset.
+			struct api_call_sbi_srst* ccmd = (struct api_call_sbi_srst*)cmd;
+			guest_handle_sbi_srst(ccmd->reset_type, ccmd->reset_reason);
+		} else if (call == SYZOS_API_SBI_SUSP) {
+			// SBI SUSP extension: system suspend.
+			struct api_call_sbi_susp* ccmd = (struct api_call_sbi_susp*)cmd;
+			guest_handle_sbi_susp(ccmd->sleep_type, ccmd->resume_addr,
+					      ccmd->opaque);
+		} else if (call == SYZOS_API_SBI_DBCN) {
+			// SBI DBCN extension: debug console I/O.
+			struct api_call_sbi_dbcn* ccmd = (struct api_call_sbi_dbcn*)cmd;
+			guest_handle_sbi_dbcn(ccmd->fid, ccmd->a0, ccmd->a1, ccmd->a2);
+		} else if (call == SYZOS_API_SBI_NACL) {
+			// SBI NACL extension: nested acceleration.
+			struct api_call_sbi_nacl* ccmd = (struct api_call_sbi_nacl*)cmd;
+			guest_handle_sbi_nacl(ccmd->fid, ccmd->a0, ccmd->a1);
+		} else if (call == SYZOS_API_SBI_FWFT) {
+			// SBI FWFT extension: firmware feature set/get.
+			struct api_call_sbi_fwft* ccmd = (struct api_call_sbi_fwft*)cmd;
+			guest_handle_sbi_fwft(ccmd->fid, ccmd->feature,
+					      ccmd->value, ccmd->flags);
+		} else if (call == SYZOS_API_SBI_MPXY) {
+			// SBI MPXY extension: message proxy.
+			struct api_call_sbi_mpxy* ccmd = (struct api_call_sbi_mpxy*)cmd;
+			guest_handle_sbi_mpxy(ccmd->fid, ccmd->a0, ccmd->a1,
+					      ccmd->a2, ccmd->a3, ccmd->a4);
+		} else if (call == SYZOS_API_SBI_DBTR) {
+			// SBI DBTR extension: debug triggers.
+			struct api_call_sbi_dbtr* ccmd = (struct api_call_sbi_dbtr*)cmd;
+			guest_handle_sbi_dbtr(ccmd->fid, ccmd->a0, ccmd->a1, ccmd->a2);
 		}
 		addr += cmd->size;
 		size -= cmd->size;
@@ -505,6 +684,166 @@ guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags)
 {
 	sbi_ecall(gpa_lo, gpa_hi, flags, 0, 0, 0,
 		  SBI_EXT_STA_STEAL_TIME_SET_SHMEM, SBI_EXT_STA);
+}
+
+// ---- SBI BASE ----
+#define SBI_EXT_BASE 0x10
+
+GUEST_CODE static noinline void
+guest_handle_sbi_base(uint64 fid, uint64 a0)
+{
+	sbi_ecall(a0, 0, 0, 0, 0, 0, fid, SBI_EXT_BASE);
+}
+
+// ---- SBI TIME ----
+#define SBI_EXT_TIME          0x54494D45
+#define SBI_EXT_TIME_SET_TIMER 0
+
+GUEST_CODE static noinline void
+guest_handle_sbi_time(uint64 stime)
+{
+	sbi_ecall(stime, 0, 0, 0, 0, 0,
+		  SBI_EXT_TIME_SET_TIMER, SBI_EXT_TIME);
+}
+
+// ---- SBI IPI ----
+#define SBI_EXT_IPI          0x735049
+#define SBI_EXT_IPI_SEND_IPI 0
+
+GUEST_CODE static noinline void
+guest_handle_sbi_ipi(uint64 hart_mask, uint64 hart_mask_base)
+{
+	sbi_ecall(hart_mask, hart_mask_base, 0, 0, 0, 0,
+		  SBI_EXT_IPI_SEND_IPI, SBI_EXT_IPI);
+}
+
+// ---- SBI RFENCE ----
+#define SBI_EXT_RFENCE                       0x52464E43
+#define SBI_EXT_RFENCE_REMOTE_FENCE_I        0
+#define SBI_EXT_RFENCE_REMOTE_SFENCE_VMA     1
+#define SBI_EXT_RFENCE_REMOTE_SFENCE_VMA_ASID 2
+#define SBI_EXT_RFENCE_REMOTE_HFENCE_GVMA_VMID 3
+#define SBI_EXT_RFENCE_REMOTE_HFENCE_GVMA    4
+#define SBI_EXT_RFENCE_REMOTE_HFENCE_VVMA_ASID 5
+#define SBI_EXT_RFENCE_REMOTE_HFENCE_VVMA    6
+
+GUEST_CODE static noinline void
+guest_handle_sbi_rfence(uint64 fid, uint64 hart_mask, uint64 hart_mask_base,
+			uint64 start_addr, uint64 size, uint64 aux)
+{
+	// aux = asid for SFENCE_VMA_ASID/HFENCE_VVMA_ASID,
+	//       vmid for HFENCE_GVMA_VMID, ignored otherwise.
+	sbi_ecall(hart_mask, hart_mask_base, start_addr, size, aux, 0,
+		  fid, SBI_EXT_RFENCE);
+}
+
+// ---- SBI HSM ----
+#define SBI_EXT_HSM              0x48534D
+#define SBI_EXT_HSM_HART_START   0
+#define SBI_EXT_HSM_HART_STOP    1
+#define SBI_EXT_HSM_HART_STATUS  2
+#define SBI_EXT_HSM_HART_SUSPEND 3
+
+GUEST_CODE static noinline void
+guest_handle_sbi_hsm(uint64 fid, uint64 a0, uint64 a1, uint64 a2)
+{
+	sbi_ecall(a0, a1, a2, 0, 0, 0, fid, SBI_EXT_HSM);
+}
+
+// ---- SBI SRST ----
+#define SBI_EXT_SRST       0x53525354
+#define SBI_EXT_SRST_RESET 0
+
+GUEST_CODE static noinline void
+guest_handle_sbi_srst(uint64 reset_type, uint64 reset_reason)
+{
+	sbi_ecall(reset_type, reset_reason, 0, 0, 0, 0,
+		  SBI_EXT_SRST_RESET, SBI_EXT_SRST);
+}
+
+// ---- SBI SUSP ----
+#define SBI_EXT_SUSP                  0x53555350
+#define SBI_EXT_SUSP_SYSTEM_SUSPEND   0
+
+GUEST_CODE static noinline void
+guest_handle_sbi_susp(uint64 sleep_type, uint64 resume_addr, uint64 opaque)
+{
+	sbi_ecall(sleep_type, resume_addr, opaque, 0, 0, 0,
+		  SBI_EXT_SUSP_SYSTEM_SUSPEND, SBI_EXT_SUSP);
+}
+
+// ---- SBI DBCN ----
+#define SBI_EXT_DBCN                    0x4442434E
+#define SBI_EXT_DBCN_CONSOLE_WRITE      0
+#define SBI_EXT_DBCN_CONSOLE_READ       1
+#define SBI_EXT_DBCN_CONSOLE_WRITE_BYTE 2
+
+GUEST_CODE static noinline void
+guest_handle_sbi_dbcn(uint64 fid, uint64 a0, uint64 a1, uint64 a2)
+{
+	sbi_ecall(a0, a1, a2, 0, 0, 0, fid, SBI_EXT_DBCN);
+}
+
+// ---- SBI NACL ----
+#define SBI_EXT_NACL               0x4E41434C
+#define SBI_EXT_NACL_PROBE_FEATURE 0
+#define SBI_EXT_NACL_SET_SHMEM     1
+#define SBI_EXT_NACL_SYNC_CSR      2
+#define SBI_EXT_NACL_SYNC_HFENCE   3
+#define SBI_EXT_NACL_SYNC_SRET     4
+
+GUEST_CODE static noinline void
+guest_handle_sbi_nacl(uint64 fid, uint64 a0, uint64 a1)
+{
+	sbi_ecall(a0, a1, 0, 0, 0, 0, fid, SBI_EXT_NACL);
+}
+
+// ---- SBI FWFT ----
+#define SBI_EXT_FWFT     0x46574654
+#define SBI_EXT_FWFT_SET 0
+#define SBI_EXT_FWFT_GET 1
+
+GUEST_CODE static noinline void
+guest_handle_sbi_fwft(uint64 fid, uint64 feature, uint64 value, uint64 flags)
+{
+	// For GET (fid=1) value and flags are unused by the firmware, but we
+	// pass them anyway; the firmware ignores extra registers.
+	sbi_ecall(feature, value, flags, 0, 0, 0, fid, SBI_EXT_FWFT);
+}
+
+// ---- SBI MPXY ----
+#define SBI_EXT_MPXY                         0x4D505859
+#define SBI_EXT_MPXY_GET_SHMEM_SIZE          0
+#define SBI_EXT_MPXY_SET_SHMEM               1
+#define SBI_EXT_MPXY_GET_CHANNEL_IDS         2
+#define SBI_EXT_MPXY_READ_ATTRS              3
+#define SBI_EXT_MPXY_WRITE_ATTRS             4
+#define SBI_EXT_MPXY_SEND_MSG_WITH_RESP      5
+#define SBI_EXT_MPXY_SEND_MSG_WITHOUT_RESP   6
+#define SBI_EXT_MPXY_GET_NOTIFICATION_EVENTS 7
+
+GUEST_CODE static noinline void
+guest_handle_sbi_mpxy(uint64 fid, uint64 a0, uint64 a1,
+		      uint64 a2, uint64 a3, uint64 a4)
+{
+	sbi_ecall(a0, a1, a2, a3, a4, 0, fid, SBI_EXT_MPXY);
+}
+
+// ---- SBI DBTR ----
+#define SBI_EXT_DBTR                0x44425452
+#define SBI_EXT_DBTR_NUM_TRIGGERS   0
+#define SBI_EXT_DBTR_SETUP_SHMEM    1
+#define SBI_EXT_DBTR_TRIG_READ      2
+#define SBI_EXT_DBTR_TRIG_INSTALL   3
+#define SBI_EXT_DBTR_TRIG_UPDATE    4
+#define SBI_EXT_DBTR_TRIG_UNINSTALL 5
+#define SBI_EXT_DBTR_TRIG_ENABLE    6
+#define SBI_EXT_DBTR_TRIG_DISABLE   7
+
+GUEST_CODE static noinline void
+guest_handle_sbi_dbtr(uint64 fid, uint64 a0, uint64 a1, uint64 a2)
+{
+	sbi_ecall(a0, a1, a2, 0, 0, 0, fid, SBI_EXT_DBTR);
 }
 
 GUEST_CODE static noinline void guest_handle_memwrite(struct api_call_memwrite* cmd)

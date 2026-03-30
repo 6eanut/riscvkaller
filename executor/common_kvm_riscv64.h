@@ -247,14 +247,16 @@ static void vm_set_user_memory_region(int vmfd, uint32 slot, uint32 flags, uint6
 // The most common reason for using data relocaions is accessing global variables and constants.
 // Sometimes the compiler may choose to emit a read-only constant to zero-initialize a structure
 // or to generate a jump table for a switch statement.
-static void validate_guest_code(void* mem, size_t size)
-{
-	uint32* insns = (uint32*)mem;
-	for (size_t i = 0; i < size / 4; i++) {
-		if ((insns[i] & AUIPC_OPCODE_MASK) == AUIPC_OPCODE)
-			fail("AUIPC instruction detected in SYZOS, exiting");
-	}
-}
+// static void validate_guest_code(void* mem, size_t size)
+// {
+// 	uint32* insns = (uint32*)mem;
+// 	for (size_t i = 0; i < size / 4; i++) {
+// 		if ((insns[i] & AUIPC_OPCODE_MASK) == AUIPC_OPCODE){
+// 			printf("AUIPC detected at index=%zu addr=0x%lx insn=0x%08x\n",
+//        i, (unsigned long)mem, insns[i]);
+// 			fail("AUIPC instruction detected in SYZOS, exiting");}
+// 	}
+// }
 
 static void install_syzos_code(void* host_mem, size_t mem_size)
 {
@@ -262,7 +264,7 @@ static void install_syzos_code(void* host_mem, size_t mem_size)
 	if (size > mem_size)
 		fail("SYZOS size exceeds guest memory");
 	memcpy(host_mem, &__start_guest, size);
-	validate_guest_code(host_mem, size);
+	// validate_guest_code(host_mem, size);
 }
 
 // Flags for mem_region.

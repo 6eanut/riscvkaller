@@ -254,6 +254,150 @@ syzos_api_sbi_generic {
 #     # DBTR
 #     0,1,2,3,4,5,6,7
 
+# BASE (ext=0x10): version queries and extension probe.
+# fid: 0=GET_SPEC_VERSION, 1=GET_IMP_ID, 2=GET_IMP_VERSION,
+#      3=PROBE_EXT (a0=ext_id), 4=GET_MVENDORID, 5=GET_MARCHID, 6=GET_MIMPID
+sbi_base_fid = 0, 1, 2, 3, 4, 5, 6
+
+syzos_api_sbi_base {
+	fid	flags[sbi_base_fid, int64]
+# used as ext_id for PROBE_EXT; ignored otherwise
+	a0	flags[sbi_ext_id, int64]
+}
+
+# TIME (ext=0x54494D45): set the supervisor timer.
+# fid always 0 (SET_TIMER).
+syzos_api_sbi_time {
+	stime	int64
+}
+
+# IPI (ext=0x735049): send IPI to a hart mask.
+# fid always 0 (SEND_IPI).
+syzos_api_sbi_ipi {
+	hart_mask	int64
+	hart_mask_base	int64
+}
+
+# RFENCE (ext=0x52464E43): remote fence instructions.
+# fid: 0=REMOTE_FENCE_I, 1=REMOTE_SFENCE_VMA, 2=REMOTE_SFENCE_VMA_ASID,
+#      3=REMOTE_HFENCE_GVMA_VMID, 4=REMOTE_HFENCE_GVMA,
+#      5=REMOTE_HFENCE_VVMA_ASID, 6=REMOTE_HFENCE_VVMA
+sbi_rfence_fid = 0, 1, 2, 3, 4, 5, 6
+
+syzos_api_sbi_rfence {
+	fid		flags[sbi_rfence_fid, int64]
+	hart_mask	int64
+	hart_mask_base	int64
+	start_addr	int64
+	size		int64
+# asid or vmid depending on fid; ignored for fids 0,1,4,6
+	aux		int64
+}
+
+# HSM (ext=0x48534D): hart state management.
+# fid: 0=HART_START (a0=hartid, a1=start_addr, a2=opaque),
+#      1=HART_STOP (no args),
+#      2=HART_STATUS (a0=hartid),
+#      3=HART_SUSPEND (a0=suspend_type, a1=resume_addr, a2=opaque)
+sbi_hsm_fid = 0, 1, 2, 3
+
+syzos_api_sbi_hsm {
+	fid	flags[sbi_hsm_fid, int64]
+	a0	int64
+	a1	int64
+	a2	int64
+}
+
+# SRST (ext=0x53525354): system reset.
+# fid always 0 (RESET).
+# reset_type: 0=SHUTDOWN, 1=COLD_REBOOT, 2=WARM_REBOOT
+# reset_reason: 0=NONE, 1=SYS_FAILURE
+sbi_srst_reset_type   = 0, 1, 2
+sbi_srst_reset_reason = 0, 1
+
+syzos_api_sbi_srst {
+	reset_type	flags[sbi_srst_reset_type, int64]
+	reset_reason	flags[sbi_srst_reset_reason, int64]
+}
+
+# SUSP (ext=0x53555350): system suspend.
+# fid always 0 (SYSTEM_SUSPEND).
+# sleep_type: 0=SUSPEND_TO_RAM
+sbi_susp_sleep_type = 0
+
+syzos_api_sbi_susp {
+	sleep_type	flags[sbi_susp_sleep_type, int64]
+	resume_addr	int64
+	opaque		int64
+}
+
+# DBCN (ext=0x4442434E): debug console.
+# fid: 0=CONSOLE_WRITE (a0=num_bytes, a1=buf_addr_lo, a2=buf_addr_hi),
+#      1=CONSOLE_READ  (a0=num_bytes, a1=buf_addr_lo, a2=buf_addr_hi),
+#      2=CONSOLE_WRITE_BYTE (a0=byte)
+sbi_dbcn_fid = 0, 1, 2
+
+syzos_api_sbi_dbcn {
+	fid	flags[sbi_dbcn_fid, int64]
+	a0	int64
+	a1	int64
+	a2	int64
+}
+
+# NACL (ext=0x4E41434C): nested acceleration.
+# fid: 0=PROBE_FEATURE (a0=feature_id),
+#      1=SET_SHMEM (a0=shmem_phys_lo, a1=shmem_phys_hi),
+#      2=SYNC_CSR (a0=csr_num),
+#      3=SYNC_HFENCE (a0=entry_index),
+#      4=SYNC_SRET (no args)
+sbi_nacl_fid     = 0, 1, 2, 3, 4
+
+syzos_api_sbi_nacl {
+	fid	flags[sbi_nacl_fid, int64]
+	a0	int64
+	a1	int64
+}
+
+# FWFT (ext=0x46574654): firmware feature set/get.
+# fid: 0=SET (feature, value, flags), 1=GET (feature)
+# feature covers local and global IDs; include a few well-known ones.
+sbi_fwft_fid     = 0, 1
+sbi_fwft_feature = 0x0, 0x1, 0x2, 0x3, 0x4, 0x5
+
+syzos_api_sbi_fwft {
+	fid		flags[sbi_fwft_fid, int64]
+	feature		flags[sbi_fwft_feature, int64]
+	value		int64
+	flags		int64
+}
+
+# MPXY (ext=0x4D505859): message proxy.
+# fid: 0=GET_SHMEM_SIZE, 1=SET_SHMEM, 2=GET_CHANNEL_IDS,
+#      3=READ_ATTRS, 4=WRITE_ATTRS, 5=SEND_MSG_WITH_RESP,
+#      6=SEND_MSG_WITHOUT_RESP, 7=GET_NOTIFICATION_EVENTS
+sbi_mpxy_fid = 0, 1, 2, 3, 4, 5, 6, 7
+
+syzos_api_sbi_mpxy {
+	fid	flags[sbi_mpxy_fid, int64]
+	a0	int64
+	a1	int64
+	a2	int64
+	a3	int64
+	a4	int64
+}
+
+# DBTR (ext=0x44425452): debug triggers.
+# fid: 0=NUM_TRIGGERS, 1=SETUP_SHMEM, 2=TRIG_READ, 3=TRIG_INSTALL,
+#      4=TRIG_UPDATE, 5=TRIG_UNINSTALL, 6=TRIG_ENABLE, 7=TRIG_DISABLE
+sbi_dbtr_fid = 0, 1, 2, 3, 4, 5, 6, 7
+
+syzos_api_sbi_dbtr {
+	fid	flags[sbi_dbtr_fid, int64]
+	a0	int64
+	a1	int64
+	a2	int64
+}
+
 syzos_api_call$riscv64 [
 	uexit				syzos_api$riscv64[0, intptr]
 	code				syzos_api$riscv64[10, syzos_api_code$riscv64]
@@ -274,6 +418,19 @@ syzos_api_call$riscv64 [
 	ret	syzos_api$riscv64[500, intptr]
 	barrier	syzos_api$riscv64[600, syzos_api_barrier]
 	sbi_generic syzos_api$riscv64[700, syzos_api_sbi_generic]
+	sbi_base	syzos_api$riscv64[800, syzos_api_sbi_base]
+	sbi_time	syzos_api$riscv64[900, syzos_api_sbi_time]
+	sbi_ipi		syzos_api$riscv64[1000, syzos_api_sbi_ipi]
+	sbi_rfence	syzos_api$riscv64[1100, syzos_api_sbi_rfence]
+	sbi_hsm		syzos_api$riscv64[1200, syzos_api_sbi_hsm]
+	sbi_srst	syzos_api$riscv64[1300, syzos_api_sbi_srst]
+	sbi_susp	syzos_api$riscv64[1400, syzos_api_sbi_susp]
+	sbi_dbcn	syzos_api$riscv64[1500, syzos_api_sbi_dbcn]
+	sbi_nacl	syzos_api$riscv64[1600, syzos_api_sbi_nacl]
+	sbi_fwft	syzos_api$riscv64[1700, syzos_api_sbi_fwft]
+	sbi_mpxy	syzos_api$riscv64[1800, syzos_api_sbi_mpxy]
+	sbi_dbtr	syzos_api$riscv64[1900, syzos_api_sbi_dbtr]
+
 ] [varlen]
 
 # Test assertions, will not be used by the fuzzer.
