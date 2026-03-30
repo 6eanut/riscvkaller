@@ -17,6 +17,7 @@ typedef enum {
 	SYZOS_API_CODE = 10,
 	SYZOS_API_CSRR = 100,
 	SYZOS_API_CSRW = 101,
+	SYZOS_API_CSR_OP = 102,
 	SYZOS_API_SBI_PMU_NUM_CTRS = 200,
 	SYZOS_API_SBI_PMU_CTR_INFO = 201,
 	SYZOS_API_SBI_PMU_CTR_CFG_MATCH = 202,
@@ -26,8 +27,11 @@ typedef enum {
 	SYZOS_API_SBI_PMU_SNAPSHOT_SET_SHMEM = 206,
     SYZOS_API_SBI_STA_SET_SHMEM          = 210,
 	SYZOS_API_MEMWRITE = 300,
+	SYZOS_API_MEMREAD = 301,
 	SYZOS_API_ECALL = 400,
 	SYZOS_API_RET = 500,
+	SYZOS_API_BARRIER = 600,
+	SYZOS_API_SBI_GENERIC = 700,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -96,10 +100,42 @@ struct api_call_memwrite {
 	uint64 len;
 };
 
+struct api_call_memread {
+    struct api_call_header header;
+    uint64 base_addr;
+    uint64 offset;
+    uint64 len;
+};
+
+struct api_call_barrier {
+    struct api_call_header header;
+    uint64 type;
+};
+
+struct api_call_csr_op {
+    struct api_call_header header;
+    uint64 csr;
+    uint64 val;
+    uint64 op;
+};
+
+struct api_call_sbi_generic {
+	struct api_call_header header;
+	uint64 a0;
+	uint64 a1;
+	uint64 a2;
+	uint64 a3;
+	uint64 a4;
+	uint64 a5;
+	uint64 fid;
+	uint64 ext;
+};
+
 GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
 GUEST_CODE static void guest_handle_csrw(uint32 csr, uint64 val);
+GUEST_CODE static void guest_handle_csr_op(uint64 csr, uint64 val, uint64 op);
 GUEST_CODE static void guest_handle_sbi_pmu_num_ctrs(void);
 GUEST_CODE static void guest_handle_sbi_pmu_ctr_info(uint64 ctr_idx);
 GUEST_CODE static void guest_handle_sbi_pmu_ctr_cfg_match(uint64 cbase, uint64 cmask, uint64 cflags, uint64 event);
@@ -109,8 +145,11 @@ GUEST_CODE static void guest_handle_sbi_pmu_fw_ctr_read(uint64 ctr_idx);
 GUEST_CODE static void guest_handle_sbi_pmu_snapshot_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
 GUEST_CODE static void guest_handle_sbi_sta_set_shmem(uint64 gpa_lo, uint64 gpa_hi, uint64 flags);
 GUEST_CODE static void guest_handle_memwrite(struct api_call_memwrite* cmd);
+GUEST_CODE static void guest_handle_memread(struct api_call_memread* cmd);
 GUEST_CODE static void guest_handle_ecall(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 a6, uint64 a7);
 GUEST_CODE static void guest_handle_ret(uint64 unused);
+GUEST_CODE static void guest_handle_barrier(uint64 type);
+GUEST_CODE static void guest_handle_sbi_generic(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 fid, uint64 ext);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -146,6 +185,10 @@ guest_main(uint64 size, uint64 cpu)
 			// Execute a csrw instruction.
 			struct api_call_2* ccmd = (struct api_call_2*)cmd;
 			guest_handle_csrw(ccmd->args[0], ccmd->args[1]);
+		} else if (call == SYZOS_API_CSR_OP) {
+    		struct api_call_csr_op* ccmd =
+    		    (struct api_call_csr_op*)cmd;
+    		guest_handle_csr_op(ccmd->csr, ccmd->val, ccmd->op); 
 		} else if (call == SYZOS_API_SBI_PMU_NUM_CTRS) {
 			// Query total number of PMU counters via SBI.
 			guest_handle_sbi_pmu_num_ctrs();
@@ -192,13 +235,26 @@ guest_main(uint64 size, uint64 cpu)
                                            ccmd->flags);
 		} else if (call == SYZOS_API_MEMWRITE) {
 			guest_handle_memwrite((struct api_call_memwrite*)cmd);
+		} else if (call == SYZOS_API_MEMREAD) {
+			guest_handle_memread((struct api_call_memread*)cmd);
 		} else if (call == SYZOS_API_ECALL) {
 			struct api_call_8* ccmd = (struct api_call_8*)cmd;
 			guest_handle_ecall(ccmd->args[0], ccmd->args[1], ccmd->args[2], ccmd->args[3], ccmd->args[4], ccmd->args[5], ccmd->args[6], ccmd->args[7]);
 		} else if (call == SYZOS_API_RET) {
 			struct api_call_1* ccmd = (struct api_call_1*)cmd;
 			guest_handle_ret(ccmd->arg);
-        }
+        } else if (call == SYZOS_API_BARRIER) {
+			struct api_call_barrier* ccmd = (struct api_call_barrier*)cmd;
+			guest_handle_barrier(ccmd->type);
+		} else if (call == SYZOS_API_SBI_GENERIC) {
+			struct api_call_sbi_generic* ccmd =
+				(struct api_call_sbi_generic*)cmd;
+
+			guest_handle_sbi_generic(
+				ccmd->a0, ccmd->a1, ccmd->a2, ccmd->a3,
+				ccmd->a4, ccmd->a5,
+				ccmd->fid, ccmd->ext);
+		}
 		addr += cmd->size;
 		size -= cmd->size;
 	};
@@ -235,6 +291,7 @@ GUEST_CODE static uint32 get_cpu_id()
 #define RISCV_OPCODE_SYSTEM 0x73
 #define FUNCT3_CSRRW 0x1
 #define FUNCT3_CSRRS 0x2
+#define FUNCT3_CSRRC 0x3
 #define REG_ZERO 0
 #define REG_A0 10
 #define ENCODE_CSR_INSN(csr, rs1, funct3, rd) \
@@ -277,6 +334,61 @@ guest_handle_csrw(uint32 csr, uint64 val)
 	    :
 	    : "r"(val), "r"(insn)
 	    : "a0", "ra", "memory");
+}
+
+#define SYZOS_CSR_OP_SWAP        0  // csrrw
+#define SYZOS_CSR_OP_SET         1  // csrs
+#define SYZOS_CSR_OP_CLEAR       2  // csrc
+#define SYZOS_CSR_OP_READ_SET    3  // csrrs
+#define SYZOS_CSR_OP_READ_CLEAR  4  // csrrc
+
+GUEST_CODE static noinline void
+guest_handle_csr_op(uint64 csr, uint64 val, uint64 op)
+{
+    uint32 cpu_id = get_cpu_id();
+
+    uint32* insn = (uint32*)((uint64)RISCV64_ADDR_SCRATCH_CODE +
+                              cpu_id * MAX_CACHE_LINE_SIZE);
+
+    uint32 funct3;
+
+    switch (op) {
+    case SYZOS_CSR_OP_SWAP:
+        funct3 = FUNCT3_CSRRW;
+        break;
+    case SYZOS_CSR_OP_SET:
+    case SYZOS_CSR_OP_READ_SET:
+        funct3 = FUNCT3_CSRRS;
+        break;
+    case SYZOS_CSR_OP_CLEAR:
+    case SYZOS_CSR_OP_READ_CLEAR:
+        funct3 = FUNCT3_CSRRC;
+        break;
+    default:
+        funct3 = FUNCT3_CSRRW;
+        break;
+    }
+
+    // rd = a0（读取返回值）
+    insn[0] = ENCODE_CSR_INSN(csr, REG_A0, funct3, REG_A0);
+
+    // ret
+    insn[1] = 0x00008067;
+
+    asm volatile("fence.i" ::: "memory");
+
+    uint64 out;
+
+    asm volatile(
+        "mv a0, %2\n"
+        "jalr ra, 0(%1)\n"
+        "mv %0, a0\n"
+        : "=r"(out)
+        : "r"(insn), "r"(val)
+        : "a0", "ra", "memory");
+
+    // 防优化
+    asm volatile("" :: "r"(out) : "memory");
 }
 
 // The exception vector table setup and SBI invocation here follow the
@@ -424,6 +536,40 @@ GUEST_CODE static noinline void guest_handle_memwrite(struct api_call_memwrite* 
 	}
 }
 
+GUEST_CODE static noinline void
+guest_handle_memread(struct api_call_memread* cmd)
+{
+    uint64 addr = cmd->base_addr + cmd->offset;
+    volatile uint64 val = 0;
+
+    switch (cmd->len) {
+    case 1: {
+        volatile uint8* p = (uint8*)addr;
+        val = *p;
+        break;
+    }
+    case 2: {
+        volatile uint16* p = (uint16*)addr;
+        val = *p;
+        break;
+    }
+    case 4: {
+        volatile uint32* p = (uint32*)addr;
+        val = *p;
+        break;
+    }
+    case 8:
+    default: {
+        volatile uint64* p = (uint64*)addr;
+        val = *p;
+        break;
+    }
+    }
+
+    // 防止优化：制造副作用
+    asm volatile("" :: "r"(val) : "memory");
+}
+
 GUEST_CODE static noinline void guest_handle_ecall(uint64 a0, uint64 a1,
                                                    uint64 a2, uint64 a3,
                                                    uint64 a4, uint64 a5,
@@ -456,6 +602,55 @@ GUEST_CODE static noinline void guest_handle_ret(uint64 unused)
     }
 
     asm volatile("sret" ::: "memory");
+}
+
+enum {
+    SYZOS_BARRIER_MB = 0,
+    SYZOS_BARRIER_RMB = 1,
+    SYZOS_BARRIER_WMB = 2,
+	SYZOS_BARRIER_SMP_MB = 3,
+	SYZOS_BARRIER_SMP_RMB = 4,
+	SYZOS_BARRIER_SMP_WMB = 5
+};
+
+GUEST_CODE static noinline void guest_handle_barrier(uint64 type)
+{
+    if (type == SYZOS_BARRIER_MB) {
+        asm volatile("fence iorw, iorw" ::: "memory");
+    }
+
+    if (type == SYZOS_BARRIER_RMB) {
+        asm volatile("fence ir, ir" ::: "memory");
+    }
+
+    if (type == SYZOS_BARRIER_WMB) {
+        asm volatile("fence ow, ow" ::: "memory");
+    }
+
+    if (type == SYZOS_BARRIER_SMP_MB) {
+        asm volatile("fence rw, rw" ::: "memory");
+    }
+
+    if (type == SYZOS_BARRIER_SMP_RMB) {
+        asm volatile("fence r, r" ::: "memory");
+    }
+
+    if (type == SYZOS_BARRIER_SMP_WMB) {
+        asm volatile("fence w, w" ::: "memory");
+    }
+
+    if (type == 0 || type > SYZOS_BARRIER_SMP_WMB) {
+        asm volatile("fence iorw, iorw" ::: "memory");
+    }
+}
+
+GUEST_CODE static noinline void
+guest_handle_sbi_generic(uint64 a0, uint64 a1,
+			 uint64 a2, uint64 a3,
+			 uint64 a4, uint64 a5,
+			 uint64 fid, uint64 ext)
+{
+	sbi_ecall(a0, a1, a2, a3, a4, a5, fid, ext);
 }
 
 #endif // EXECUTOR_COMMON_KVM_RISCV64_SYZOS_H

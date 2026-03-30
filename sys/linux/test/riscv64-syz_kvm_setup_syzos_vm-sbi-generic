@@ -1,0 +1,159 @@
+# requires: arch=riscv64 -threaded
+
+# 1. 创建 KVM VM
+r0 = openat$kvm(0, &AUTO='/dev/kvm\x00', 0x0, 0x0)
+r1 = ioctl$KVM_CREATE_VM(r0, AUTO, 0x0)
+r2 = syz_kvm_setup_syzos_vm$riscv64(r1, &(0x7f0000c00000/0x400000)=nil)
+
+# 2. 添加 VCPU
+# r3 = syz_kvm_add_vcpu$riscv64(r2, &AUTO={
+# 	0x0,
+# 	&AUTO=[
+# 
+# 		# 3. BASE 扩展 (ext=0x10)
+# 		# - BASE: 读取规格版本 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 获取实现 ID (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 获取实现版本 (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 扩展探测 (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 获取供应商 ID (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 获取架构 ID (fid=5)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 		# - BASE: 获取实现版本 ID (fid=6)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},
+# 
+# 		# 4. TIME 扩展 (ext=0x54494D45)
+# 		# - TIME: 设置定时器 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {1000000,0,0,0,0,0,0,0x54494D45}},
+# 
+# 		# 5. IPI 扩展 (ext=0x735049)
+# 		# - IPI: 发送 IPI (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x735049}},
+# 
+# 		# 6. RFENCE 扩展 (ext=0x52464E43)
+# 		# - RFENCE: 远程 Fence I (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 SFence VMA (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 SFence VMA ASID (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 HFence GVMA VMID (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 HFence GVMA (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 HFence VVMA ASID (fid=5)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 		# - RFENCE: 远程 HFence VVMA (fid=6)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},
+# 
+# 		# 7. HSM 扩展 (ext=0x48534D)
+# 		# - HSM: 启动 Hart (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},
+# 		# - HSM: 停止 Hart (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},
+# 		# - HSM: Hart 状态 (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},
+# 		# - HSM: Hart 挂起 (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},
+# 
+# 		# 8. SRST 扩展 (ext=0x53525354)
+# 		# - SRST: 重置 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x53525354}},
+# 
+# 		# 9. SUSP 扩展 (ext=0x53555350)
+# 		# - SUSP: 系统挂起 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x53555350}},
+# 
+# 		# 10. PMU 扩展 (ext=0x504D55)
+# 		# - PMU: 计数器数量 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 获取计数器信息 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 配置匹配计数器 (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 启动计数器 (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 停止计数器 (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 读取计数器 (fid=5)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 读取计数器高位 (fid=6)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 设置共享内存 (fid=7)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 		# - PMU: 获取事件信息 (fid=8)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},
+# 
+# 		# 11. DBCN 扩展 (ext=0x4442434E)
+# 		# - DBCN: 写控制台 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},
+# 		# - DBCN: 读控制台 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},
+# 		# - DBCN: 写字节控制台 (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},
+# 
+# 		# 12. STA 扩展 (ext=0x535441)
+# 		# - STA: 设置共享内存 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x535441}},
+# 
+# 		# 13. NACL 扩展 (ext=0x4E41434C)
+# 		# - NACL: 探测功能 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},
+# 		# - NACL: 设置共享内存 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},
+# 		# - NACL: 同步 CSR (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},
+# 		# - NACL: 同步 HFENCE (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},
+# 		# - NACL: 同步 SRET (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},
+# 
+# 		# 14. FWFT 扩展 (ext=0x46574654)
+# 		# - FWFT: 设置 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x46574654}},
+# 		# - FWFT: 获取 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x46574654}},
+# 
+# 		# 15. MPXY 扩展 (ext=0x4D505859)
+# 		# - MPXY: 获取共享内存大小 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 设置共享内存 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 获取通道 ID (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 读取属性 (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 写入属性 (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 发送带响应的消息 (fid=5)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 发送无响应消息 (fid=6)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 		# - MPXY: 获取通知事件 (fid=7)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},
+# 
+# 		# 16. DBTR 扩展 (ext=0x44425452)
+# 		# - DBTR: 获取触发器数量 (fid=0)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 设置共享内存 (fid=1)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 读取触发器数据 (fid=2)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 安装触发器 (fid=3)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 更新触发器 (fid=4)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 卸载触发器 (fid=5)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 启用触发器 (fid=6)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 		# - DBTR: 禁用触发器 (fid=7)
+# 		@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},
+# 	}
+# }
+
+r3 = syz_kvm_add_vcpu$riscv64(r2, &AUTO={0x0,&AUTO=[@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x10}},@sbi_generic={AUTO, AUTO, {1000000,0,0,0,0,0,0,0x54494D45}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x735049}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x52464E43}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x48534D}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x53525354}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x53555350}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x504D55}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4442434E}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x535441}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4E41434C}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x46574654}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x46574654}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x4D505859}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}},@sbi_generic={AUTO, AUTO, {0,0,0,0,0,0,0,0x44425452}}]})
