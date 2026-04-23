@@ -83,6 +83,7 @@ syzos_api_call$riscv64 [
 	code	syzos_api$riscv64[10, syzos_api_code$riscv64]
 	csrr	syzos_api$riscv64[100, syzos_api_csrr]
 	csrw	syzos_api$riscv64[101, syzos_api_csrw]
+	wfi	syzos_api$riscv64[120, void]
 ] [varlen]
 
 # Test assertions, will not be used by the fuzzer.
