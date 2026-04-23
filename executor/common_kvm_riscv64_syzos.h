@@ -17,6 +17,7 @@ typedef enum {
 	SYZOS_API_CODE = 10,
 	SYZOS_API_CSRR = 100,
 	SYZOS_API_CSRW = 101,
+	SYZOS_API_WRS = 130,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -29,6 +30,7 @@ GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
 GUEST_CODE static void guest_handle_csrw(uint32 csr, uint64 val);
+GUEST_CODE static void guest_handle_wrs(uint32 variant);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -64,6 +66,10 @@ guest_main(uint64 size, uint64 cpu)
 			// Execute a csrw instruction.
 			struct api_call_2* ccmd = (struct api_call_2*)cmd;
 			guest_handle_csrw(ccmd->args[0], ccmd->args[1]);
+		} else if (call == SYZOS_API_WRS) {
+			// Execute a WRS instruction.
+			struct api_call_1* ccmd = (struct api_call_1*)cmd;
+			guest_handle_wrs(ccmd->arg);
 		}
 		addr += cmd->size;
 		size -= cmd->size;
@@ -143,6 +149,32 @@ guest_handle_csrw(uint32 csr, uint64 val)
 	    :
 	    : "r"(val), "r"(insn)
 	    : "a0", "ra", "memory");
+}
+
+GUEST_CODE static noinline void
+guest_handle_wrs(uint32 variant)
+{
+	uint32 cpu_id = get_cpu_id();
+	// Make sure CPUs use different cache lines for scratch code.
+	uint32* insn = (uint32*)((uint64)RISCV64_ADDR_SCRATCH_CODE + cpu_id * MAX_CACHE_LINE_SIZE);
+
+	// WRS instruction encoding:
+	// WRS.NTO: 0x00D00073 (funct12=0x00D, rs1=0, funct3=0, rd=0, opcode=0x73)
+	// WRS.STO: 0x01D00073 (funct12=0x10D, rs1=0, funct3=0, rd=0, opcode=0x73)
+	if (variant == 0) {
+		insn[0] = 0x00D00073;
+	} else {
+		insn[0] = 0x01D00073;
+	}
+	insn[1] = 0x00008067;
+
+	asm volatile("fence.i" ::
+			 : "memory");
+	asm volatile(
+	    "jalr ra, 0(%0)"
+	    :
+	    : "r"(insn)
+	    : "ra", "memory");
 }
 
 // The exception vector table setup and SBI invocation here follow the
