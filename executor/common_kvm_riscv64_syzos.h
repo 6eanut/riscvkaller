@@ -18,6 +18,7 @@ typedef enum {
 	SYZOS_API_CSROP = 100,
 	SYZOS_API_MEMOP = 110,
 	SYZOS_API_WFI = 120,
+	SYZOS_API_WRS = 130,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -31,6 +32,7 @@ GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrop(uint32 csr, uint32 rs1_val, uint32 funct3, uint32 rd);
 GUEST_CODE static void guest_handle_memop(struct api_call_5* cmd);
 GUEST_CODE static void guest_handle_wfi();
+GUEST_CODE static void guest_handle_wrs(uint32 variant);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -69,6 +71,10 @@ guest_main(uint64 size, uint64 cpu)
 		} else if (call == SYZOS_API_WFI) {
 			// Execute a WFI instruction.
 			guest_handle_wfi();
+		} else if (call == SYZOS_API_WRS) {
+			// Execute a WRS instruction.
+			struct api_call_1* ccmd = (struct api_call_1*)cmd;
+			guest_handle_wrs(ccmd->arg);
 		}
 		addr += cmd->size;
 		size -= cmd->size;
@@ -243,6 +249,32 @@ guest_handle_wfi()
 	uint64 wakeup_time = current_time + 1000000;
 	struct sbiret ret = sbi_ecall(0, wakeup_time, 0, 0, 0, 0, 0, SBI_EXT_TIME);
 	(void)ret;
+
+	asm volatile("fence.i" ::
+			 : "memory");
+	asm volatile(
+	    "jalr ra, 0(%0)"
+	    :
+	    : "r"(insn)
+	    : "ra", "memory");
+}
+
+GUEST_CODE static noinline void
+guest_handle_wrs(uint32 variant)
+{
+	uint32 cpu_id = get_cpu_id();
+	// Make sure CPUs use different cache lines for scratch code.
+	uint32* insn = (uint32*)((uint64)RISCV64_ADDR_SCRATCH_CODE + cpu_id * MAX_CACHE_LINE_SIZE);
+
+	// WRS instruction encoding:
+	// WRS.NTO: 0x00D00073 (funct12=0x00D, rs1=0, funct3=0, rd=0, opcode=0x73)
+	// WRS.STO: 0x01D00073 (funct12=0x10D, rs1=0, funct3=0, rd=0, opcode=0x73)
+	if (variant == 0) {
+		insn[0] = 0x00D00073;
+	} else {
+		insn[0] = 0x01D00073;
+	}
+	insn[1] = 0x00008067;
 
 	asm volatile("fence.i" ::
 			 : "memory");

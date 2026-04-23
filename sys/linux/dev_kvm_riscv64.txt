@@ -88,12 +88,17 @@ syzos_api_memop {
 	op	int8[0:1]
 }
 
+syzos_api_wrs {
+	variant	int64[0:1]
+}
+
 syzos_api_call$riscv64 [
 	uexit	syzos_api$riscv64[0, intptr]
 	code	syzos_api$riscv64[10, syzos_api_code$riscv64]
 	csrop	syzos_api$riscv64[100, syzos_api_csrop]
 	memop	syzos_api$riscv64[110, syzos_api_memop]
 	wfi	syzos_api$riscv64[120, void]
+	wrs	syzos_api$riscv64[130, syzos_api_wrs]
 ] [varlen]
 
 # Test assertions, will not be used by the fuzzer.
