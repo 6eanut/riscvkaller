@@ -17,6 +17,7 @@ typedef enum {
 	SYZOS_API_CODE = 10,
 	SYZOS_API_CSROP = 100,
 	SYZOS_API_MEMOP = 110,
+	SYZOS_API_WFI = 120,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -29,6 +30,7 @@ GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrop(uint32 csr, uint32 rs1_val, uint32 funct3, uint32 rd);
 GUEST_CODE static void guest_handle_memop(struct api_call_5* cmd);
+GUEST_CODE static void guest_handle_wfi();
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -64,11 +66,51 @@ guest_main(uint64 size, uint64 cpu)
 			// Execute a memory operation.
 			struct api_call_5* ccmd = (struct api_call_5*)cmd;
 			guest_handle_memop(ccmd);
+		} else if (call == SYZOS_API_WFI) {
+			// Execute a WFI instruction.
+			guest_handle_wfi();
 		}
 		addr += cmd->size;
 		size -= cmd->size;
 	};
 	guest_uexit((uint64)-1);
+}
+
+// The exception vector table setup and SBI invocation here follow the
+// implementation in Linux kselftest KVM RISC-V tests.
+// See https://elixir.bootlin.com/linux/v6.19-rc5/source/tools/testing/selftests/kvm/lib/riscv/processor.c#L337 .
+#define KVM_RISCV_SBI_EXT 0x08FFFFFF
+#define KVM_RISCV_SBI_UNEXP 1
+
+struct sbiret {
+	long error;
+	long value;
+};
+
+GUEST_CODE static inline struct sbiret
+sbi_ecall(unsigned long arg0, unsigned long arg1,
+	  unsigned long arg2, unsigned long arg3,
+	  unsigned long arg4, unsigned long arg5,
+	  int fid, int ext)
+{
+	struct sbiret ret;
+
+	register unsigned long a0 asm("a0") = arg0;
+	register unsigned long a1 asm("a1") = arg1;
+	register unsigned long a2 asm("a2") = arg2;
+	register unsigned long a3 asm("a3") = arg3;
+	register unsigned long a4 asm("a4") = arg4;
+	register unsigned long a5 asm("a5") = arg5;
+	register unsigned long a6 asm("a6") = fid;
+	register unsigned long a7 asm("a7") = ext;
+	asm volatile("ecall"
+		     : "+r"(a0), "+r"(a1)
+		     : "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6), "r"(a7)
+		     : "memory");
+	ret.error = a0;
+	ret.value = a1;
+
+	return ret;
 }
 
 // Perform a userspace exit that can be handled by the host.
@@ -177,41 +219,38 @@ guest_handle_memop(struct api_call_5* cmd)
 	}
 }
 
-// The exception vector table setup and SBI invocation here follow the
-// implementation in Linux kselftest KVM RISC-V tests.
-// See https://elixir.bootlin.com/linux/v6.19-rc5/source/tools/testing/selftests/kvm/lib/riscv/processor.c#L337 .
-#define KVM_RISCV_SBI_EXT 0x08FFFFFF
-#define KVM_RISCV_SBI_UNEXP 1
+#define SBI_EXT_TIME 0x54494D45
 
-struct sbiret {
-	long error;
-	long value;
-};
-
-GUEST_CODE static inline struct sbiret
-sbi_ecall(unsigned long arg0, unsigned long arg1,
-	  unsigned long arg2, unsigned long arg3,
-	  unsigned long arg4, unsigned long arg5,
-	  int fid, int ext)
+GUEST_CODE static noinline void
+guest_handle_wfi()
 {
-	struct sbiret ret;
+	uint32 cpu_id = get_cpu_id();
+	// Make sure CPUs use different cache lines for scratch code.
+	uint32* insn = (uint32*)((uint64)RISCV64_ADDR_SCRATCH_CODE + cpu_id * MAX_CACHE_LINE_SIZE);
 
-	register unsigned long a0 asm("a0") = arg0;
-	register unsigned long a1 asm("a1") = arg1;
-	register unsigned long a2 asm("a2") = arg2;
-	register unsigned long a3 asm("a3") = arg3;
-	register unsigned long a4 asm("a4") = arg4;
-	register unsigned long a5 asm("a5") = arg5;
-	register unsigned long a6 asm("a6") = fid;
-	register unsigned long a7 asm("a7") = ext;
-	asm volatile("ecall"
-		     : "+r"(a0), "+r"(a1)
-		     : "r"(a2), "r"(a3), "r"(a4), "r"(a5), "r"(a6), "r"(a7)
-		     : "memory");
-	ret.error = a0;
-	ret.value = a1;
+	// WFI instruction encoding: 0x10500073.
+	// Use volatile to prevent compiler from placing constants in .rodata which needs auipc.
+	volatile uint32 wfi_insn = 0x10500073;
+	volatile uint32 ret_insn = 0x00008067;
+	insn[0] = wfi_insn;
+	insn[1] = ret_insn;
 
-	return ret;
+	// Set a timer to fire after a short delay, so WFI will wake up.
+	// SBI TIME extension: set_timer function (fid=0).
+	// First read current time, then add a small offset.
+	uint64 current_time;
+	asm volatile("rdtime %0" : "=r"(current_time));
+	uint64 wakeup_time = current_time + 1000000;
+	struct sbiret ret = sbi_ecall(0, wakeup_time, 0, 0, 0, 0, 0, SBI_EXT_TIME);
+	(void)ret;
+
+	asm volatile("fence.i" ::
+			 : "memory");
+	asm volatile(
+	    "jalr ra, 0(%0)"
+	    :
+	    : "r"(insn)
+	    : "ra", "memory");
 }
 
 GUEST_CODE __attribute__((used)) __attribute((__aligned__(16))) static void
