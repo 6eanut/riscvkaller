@@ -79,4 +79,9 @@ struct api_call_5 {
 	uint64 args[5];
 };
 
+struct api_call_8 {
+	struct api_call_header header;
+	uint64 args[8];
+};
+
 #endif // EXECUTOR_COMMON_KVM_SYZOS_H

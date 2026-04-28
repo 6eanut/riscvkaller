@@ -78,11 +78,138 @@ riscv64_csr_or_any [
 # https://elixir.bootlin.com/linux/v6.19-rc5/source/arch/riscv/include/uapi/asm/kvm.h#L75 .
 riscv64_csr = 0x100, 0x104, 0x105, 0x140, 0x141, 0x142, 0x143, 0x144, 0x180, 0x106, 0x10a
 
+# Wildcard: completely unconstrained SBI ecall for state space exploration.
+syzos_api_sbi_ecall_wildcard {
+	args	array[int64, 8]
+}
+
+# SBI BASE extension (EID=0x10) — functions 0-6 valid.
+syzos_api_sbi_base {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:7]
+	arg_eid	const[0x10, int64]
+}
+
+# SBI TIME extension (EID=0x54494D45) — only SET_TIMER (fid=0).
+syzos_api_sbi_time {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:1]
+	arg_eid	const[0x54494d45, int64]
+}
+
+# SBI IPI extension (EID=0x735049) — only SEND_IPI (fid=0).
+syzos_api_sbi_ipi {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:1]
+	arg_eid	const[0x735049, int64]
+}
+
+# SBI RFENCE extension (EID=0x52464E43) — functions 0-6 valid.
+syzos_api_sbi_rfence {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:7]
+	arg_eid	const[0x52464e43, int64]
+}
+
+# SBI SRST extension (EID=0x53525354) — only SBI_EXT_SRST_RESET (fid=0), reset_type 0-2 valid.
+syzos_api_sbi_srst {
+	arg_reset_type	int64[0:3]
+	arg_pad		array[int64, 5]
+	arg_fid		int64[0:1]
+	arg_eid		const[0x53525354, int64]
+}
+
+# SBI HSM extension (EID=0x48534D) — functions 0-3 valid.
+syzos_api_sbi_hsm {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:5]
+	arg_eid	const[0x48534d, int64]
+}
+
+# SBI PMU extension (EID=0x504D55) — functions 0-8 valid.
+syzos_api_sbi_pmu {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:9]
+	arg_eid	const[0x504d55, int64]
+}
+
+# SBI DBCN extension (EID=0x4442434E) — forwarded to userspace.
+syzos_api_sbi_dbcn {
+	arg_pad	array[int64, 7]
+	arg_eid	const[0x4442434e, int64]
+}
+
+# SBI SUSP extension (EID=0x53555350) - only SBI_EXT_SUSP_SYSTEM_SUSPEND (fid=0).
+syzos_api_sbi_susp {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:1]
+	arg_eid	const[0x53555350, int64]
+}
+
+# SBI STA extension (EID=0x535441) - only SBI_EXT_STA_STEAL_TIME_SET_SHMEM (fid=0).
+syzos_api_sbi_sta {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:1]
+	arg_eid	const[0x535441, int64]
+}
+
+# SBI FWFT extension (EID=0x46574654) — functions 0-1 valid.
+syzos_api_sbi_fwft {
+	arg_pad	array[int64, 6]
+	arg_fid	int64[0:2]
+	arg_eid	const[0x46574654, int64]
+}
+
+# SBI MPXY extension (EID=0x4D505859) — forwarded to userspace.
+syzos_api_sbi_mpxy {
+	arg_pad	array[int64, 7]
+	arg_eid	const[0x4d505859, int64]
+}
+
+# SBI EXPERIMENTAL extension (EID=0x08000000~0x08FFFFFF) — forwarded to userspace.
+syzos_api_sbi_experimental {
+	arg_pad	array[int64, 7]
+	arg_eid	int64[0x8000000:0x8ffffff]
+}
+
+# SBI VENDOR extension (EID=0x09000000~0x09FFFFFF) — forwarded to userspace.
+syzos_api_sbi_vendor {
+	arg_pad	array[int64, 7]
+	arg_eid	int64[0x9000000:0x9ffffff]
+}
+
+# Unified legacy SBI v0.1 API (EID=0) — extensions 0-8 valid.
+syzos_api_sbi_v01 {
+	arg_pad	array[int64, 7]
+	arg_eid	int64[0:9]
+}
+
+# Union: all SBI ecall variants. C handler is always guest_handle_sbi_ecall(a0..a7).
+syzos_api_sbi_ecall [
+	wildcard	syzos_api_sbi_ecall_wildcard
+	base		syzos_api_sbi_base
+	time		syzos_api_sbi_time
+	ipi		syzos_api_sbi_ipi
+	rfence		syzos_api_sbi_rfence
+	srst		syzos_api_sbi_srst
+	hsm		syzos_api_sbi_hsm
+	pmu		syzos_api_sbi_pmu
+	dbcn		syzos_api_sbi_dbcn
+	susp		syzos_api_sbi_susp
+	sta		syzos_api_sbi_sta
+	fwft		syzos_api_sbi_fwft
+	mpxy		syzos_api_sbi_mpxy
+	experimental	syzos_api_sbi_experimental
+	vendor		syzos_api_sbi_vendor
+	v01		syzos_api_sbi_v01
+] [varlen]
+
 syzos_api_call$riscv64 [
-	uexit	syzos_api$riscv64[0, intptr]
-	code	syzos_api$riscv64[10, syzos_api_code$riscv64]
-	csrr	syzos_api$riscv64[100, syzos_api_csrr]
-	csrw	syzos_api$riscv64[101, syzos_api_csrw]
+	uexit		syzos_api$riscv64[0, intptr]
+	code		syzos_api$riscv64[10, syzos_api_code$riscv64]
+	csrr		syzos_api$riscv64[100, syzos_api_csrr]
+	csrw		syzos_api$riscv64[101, syzos_api_csrw]
+	sbi_ecall	syzos_api$riscv64[140, syzos_api_sbi_ecall]
 ] [varlen]
 
 # Test assertions, will not be used by the fuzzer.

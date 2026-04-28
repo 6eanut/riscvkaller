@@ -17,6 +17,7 @@ typedef enum {
 	SYZOS_API_CODE = 10,
 	SYZOS_API_CSRR = 100,
 	SYZOS_API_CSRW = 101,
+	SYZOS_API_SBI_ECALL = 140,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -29,47 +30,6 @@ GUEST_CODE static void guest_uexit(uint64 exit_code);
 GUEST_CODE static void guest_execute_code(uint32* insns, uint64 size);
 GUEST_CODE static void guest_handle_csrr(uint32 csr);
 GUEST_CODE static void guest_handle_csrw(uint32 csr, uint64 val);
-
-// Main guest function that performs necessary setup and passes the control to the user-provided
-// payload.
-// The inner loop uses a complex if-statement, because Clang is eager to insert a jump table into
-// a switch statement.
-// We add single-line comments to justify having the compound statements below.
-__attribute__((used))
-GUEST_CODE static void
-guest_main(uint64 size, uint64 cpu)
-{
-	uint64 addr = RISCV64_ADDR_USER_CODE + cpu * 0x1000;
-
-	while (size >= sizeof(struct api_call_header)) {
-		struct api_call_header* cmd = (struct api_call_header*)addr;
-		if (cmd->call >= SYZOS_API_STOP)
-			return;
-		if (cmd->size > size)
-			return;
-		volatile uint64 call = cmd->call;
-		if (call == SYZOS_API_UEXIT) {
-			// Issue a user exit.
-			struct api_call_1* ccmd = (struct api_call_1*)cmd;
-			guest_uexit(ccmd->arg);
-		} else if (call == SYZOS_API_CODE) {
-			// Execute an instruction blob.
-			struct api_call_code* ccmd = (struct api_call_code*)cmd;
-			guest_execute_code(ccmd->insns, cmd->size - sizeof(struct api_call_header));
-		} else if (call == SYZOS_API_CSRR) {
-			// Execute a csrr instruction.
-			struct api_call_1* ccmd = (struct api_call_1*)cmd;
-			guest_handle_csrr(ccmd->arg);
-		} else if (call == SYZOS_API_CSRW) {
-			// Execute a csrw instruction.
-			struct api_call_2* ccmd = (struct api_call_2*)cmd;
-			guest_handle_csrw(ccmd->args[0], ccmd->args[1]);
-		}
-		addr += cmd->size;
-		size -= cmd->size;
-	};
-	guest_uexit((uint64)-1);
-}
 
 // Perform a userspace exit that can be handled by the host.
 // The host returns from ioctl(KVM_RUN) with kvm_run.exit_reason=KVM_EXIT_MMIO,
@@ -156,6 +116,7 @@ struct sbiret {
 	long value;
 };
 
+// Low-level inline SBI ecall: sets a0-a7 from arguments and executes the ecall instruction.
 GUEST_CODE static inline struct sbiret
 sbi_ecall(unsigned long arg0, unsigned long arg1,
 	  unsigned long arg2, unsigned long arg3,
@@ -182,12 +143,66 @@ sbi_ecall(unsigned long arg0, unsigned long arg1,
 	return ret;
 }
 
+// SBI ecall entry point for guest_main: unpacks api_call_8 into register arguments.
+GUEST_CODE static noinline void
+guest_handle_sbi_ecall(uint64 a0, uint64 a1, uint64 a2, uint64 a3,
+		       uint64 a4, uint64 a5, uint64 a6, uint64 a7)
+{
+	sbi_ecall(a0, a1, a2, a3, a4, a5, a6, a7);
+}
+
 GUEST_CODE __attribute__((used)) __attribute((__aligned__(16))) static void
 guest_unexp_trap(void)
 {
 	sbi_ecall(0, 0, 0, 0, 0, 0,
 		  KVM_RISCV_SBI_UNEXP,
 		  KVM_RISCV_SBI_EXT);
+}
+
+// Main guest function that performs necessary setup and passes the control to the user-provided
+// payload.
+// The inner loop uses a complex if-statement, because Clang is eager to insert a jump table into
+// a switch statement.
+// We add single-line comments to justify having the compound statements below.
+__attribute__((used))
+GUEST_CODE static void
+guest_main(uint64 size, uint64 cpu)
+{
+	uint64 addr = RISCV64_ADDR_USER_CODE + cpu * 0x1000;
+
+	while (size >= sizeof(struct api_call_header)) {
+		struct api_call_header* cmd = (struct api_call_header*)addr;
+		if (cmd->call >= SYZOS_API_STOP)
+			return;
+		if (cmd->size > size)
+			return;
+		volatile uint64 call = cmd->call;
+		if (call == SYZOS_API_UEXIT) {
+			// Issue a user exit.
+			struct api_call_1* ccmd = (struct api_call_1*)cmd;
+			guest_uexit(ccmd->arg);
+		} else if (call == SYZOS_API_CODE) {
+			// Execute an instruction blob.
+			struct api_call_code* ccmd = (struct api_call_code*)cmd;
+			guest_execute_code(ccmd->insns, cmd->size - sizeof(struct api_call_header));
+		} else if (call == SYZOS_API_CSRR) {
+			// Execute a csrr instruction.
+			struct api_call_1* ccmd = (struct api_call_1*)cmd;
+			guest_handle_csrr(ccmd->arg);
+		} else if (call == SYZOS_API_CSRW) {
+			// Execute a csrw instruction.
+			struct api_call_2* ccmd = (struct api_call_2*)cmd;
+			guest_handle_csrw(ccmd->args[0], ccmd->args[1]);
+		} else if (call == SYZOS_API_SBI_ECALL) {
+			// SBI ecall: all register values come directly from the fuzzer.
+			// The syzlang union constrains a6/a7 (fid/ext) to valid ranges per extension.
+			struct api_call_8* ccmd = (struct api_call_8*)cmd;
+			guest_handle_sbi_ecall(ccmd->args[0], ccmd->args[1], ccmd->args[2], ccmd->args[3], ccmd->args[4], ccmd->args[5], ccmd->args[6], ccmd->args[7]);
+		}
+		addr += cmd->size;
+		size -= cmd->size;
+	};
+	guest_uexit((uint64)-1);
 }
 
 #endif // EXECUTOR_COMMON_KVM_RISCV64_SYZOS_H
