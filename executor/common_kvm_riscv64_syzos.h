@@ -19,6 +19,7 @@ typedef enum {
 	SYZOS_API_MEMOP = 110,
 	SYZOS_API_WFI = 120,
 	SYZOS_API_WRS = 130,
+	SYZOS_API_SBI_ECALL = 140,
 	SYZOS_API_STOP, // Must be the last one
 } syzos_api_id;
 
@@ -33,6 +34,7 @@ GUEST_CODE static void guest_handle_csrop(uint32 csr, uint32 rs1_val, uint32 fun
 GUEST_CODE static void guest_handle_memop(struct api_call_5* cmd);
 GUEST_CODE static void guest_handle_wfi();
 GUEST_CODE static void guest_handle_wrs(uint32 variant);
+GUEST_CODE static void guest_handle_sbi_ecall(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 a6, uint64 a7);
 
 // Main guest function that performs necessary setup and passes the control to the user-provided
 // payload.
@@ -75,6 +77,10 @@ guest_main(uint64 size, uint64 cpu)
 			// Execute a WRS instruction.
 			struct api_call_1* ccmd = (struct api_call_1*)cmd;
 			guest_handle_wrs(ccmd->arg);
+		} else if (call == SYZOS_API_SBI_ECALL) {
+			// Execute an SBI ecall.
+			struct api_call_8* ccmd = (struct api_call_8*)cmd;
+			guest_handle_sbi_ecall(ccmd->args[0], ccmd->args[1], ccmd->args[2], ccmd->args[3], ccmd->args[4], ccmd->args[5], ccmd->args[6], ccmd->args[7]);
 		}
 		addr += cmd->size;
 		size -= cmd->size;
@@ -93,6 +99,7 @@ struct sbiret {
 	long value;
 };
 
+// Low-level inline SBI ecall: sets a0-a7 from arguments and executes the ecall instruction.
 GUEST_CODE static inline struct sbiret
 sbi_ecall(unsigned long arg0, unsigned long arg1,
 	  unsigned long arg2, unsigned long arg3,
@@ -117,6 +124,13 @@ sbi_ecall(unsigned long arg0, unsigned long arg1,
 	ret.value = a1;
 
 	return ret;
+}
+
+// SBI ecall entry point for guest_main: unpacks api_call_8 into register arguments.
+GUEST_CODE static noinline void
+guest_handle_sbi_ecall(uint64 a0, uint64 a1, uint64 a2, uint64 a3, uint64 a4, uint64 a5, uint64 a6, uint64 a7)
+{
+	sbi_ecall(a0, a1, a2, a3, a4, a5, a6, a7);
 }
 
 // Perform a userspace exit that can be handled by the host.
